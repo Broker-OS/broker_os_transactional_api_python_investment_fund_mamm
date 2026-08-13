@@ -186,6 +186,34 @@ devuelve `409`, y el `signing_secret` se entrega en claro **una única vez** —
 eso `scripts/register_webhook.py` lo escribe directo al `.env` en vez de
 imprimirlo.
 
+### Grupos MT5
+
+Se usan **dos grupos**, elegidos por la capacidad con la que **nace** la cuenta:
+
+| Nace con | Grupo |
+|---|---|
+| `can_be_leader: true` | `real\BRIDGEMARKETS\CODENCH\AXINFY\MASTER` |
+| solo `can_be_follower` | `real\BRIDGEMARKETS\CODENCH\AXINFY\INVESTOR` |
+
+**Por qué dos y no uno.** Los grupos vienen del motor PAMM, donde una cuenta era
+Master *o* Investor. En MAM una cuenta puede ser las dos cosas a la vez, así que
+el modelo no mapea 1:1 — pero se mantienen porque **los símbolos coinciden entre
+ambos grupos** (confirmado con el broker). Esa es la única condición que importa:
+si una estrategia operara un símbolo que el grupo del cliente no tiene, la copia
+fallaría en silencio, operación por operación.
+
+**Consecuencia aceptada:** una cuenta que es estrategia *y* además sigue a otra
+queda en el grupo MASTER, con esas condiciones también mientras copia. El grupo
+MT5 se fija al crear la cuenta y **no se puede mover después**.
+
+Si algún día el broker define un grupo único para MAM, se vacían
+`MAM_MT5_GROUP_LEADER` y `MAM_MT5_GROUP_FOLLOWER` y se llena
+`MAM_MT5_PLATFORM_GROUP`. Es configuración, no código.
+
+> El motor **no devuelve** el `platform_group` al consultar una cuenta: es de
+> solo escritura. Un grupo mal escrito no se detecta con una consulta — se
+> descubre cuando alguien intenta operar y no puede.
+
 ### Crear una API key
 
 ```bash
