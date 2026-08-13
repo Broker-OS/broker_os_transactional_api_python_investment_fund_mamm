@@ -67,12 +67,14 @@ def run_checks() -> list[Finding]:
             "(el provisioning falla cerrado para no guardar contrasenas en claro)."))
 
     # ── provisioning MT5 (spec §5, paso 1) ──
-    if not settings.MAM_MT5_PLATFORM_GROUP:
-        # Sin grupo no se crea ninguna cuenta MT5.
+    # Alcanza con el grupo general O con los dos por capacidad; sin ninguno no se
+    # puede crear ninguna cuenta MT5.
+    if not (settings.MAM_MT5_PLATFORM_GROUP
+            or (settings.MAM_MT5_GROUP_LEADER and settings.MAM_MT5_GROUP_FOLLOWER)):
         findings.append(Finding(
             "CRITICAL" if prod else "WARNING", "MT5_PLATFORM_GROUP_MISSING",
-            "Falta MAM_MT5_PLATFORM_GROUP (el grupo MT5 real acordado con el broker): "
-            "no se pueden crear cuentas."))
+            "Falta el grupo MT5 acordado con el broker (MAM_MT5_PLATFORM_GROUP, o bien "
+            "MAM_MT5_GROUP_LEADER + MAM_MT5_GROUP_FOLLOWER): no se pueden crear cuentas."))
 
     # ── copy trading (spec §4.1) ──
     if settings.MAM_ACCOUNT_MODE.strip().upper() != "HEDGING":

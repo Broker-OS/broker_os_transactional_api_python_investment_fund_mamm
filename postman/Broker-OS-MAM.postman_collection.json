@@ -1,0 +1,917 @@
+{
+  "info": {
+    "name": "Broker OS · Investment Fund MAM",
+    "description": "API B2B (`X-API-Key`) para copy trading MetaTrader 5 sobre el motor MAM, con libro contable de doble entrada sobre una cuenta maestra pre-fondeada.\n\n## Antes de empezar\nDefiní `api_key` en las variables de la colección. `base_url` ya apunta al servicio desplegado.\n\n## El modelo en una frase\nEl motor **no tiene cuentas master ni investor**. Crea **cuentas MAM**, y `leader`/`follower` describen el papel que dos cuentas juegan **dentro de una allocation**. Una misma cuenta puede seguir una estrategia y ser seguida por otras.\n\n## Orden sugerido\n1. **Salud** → verificar que el servicio responde y qué configuración falta.\n2. **Clientes** → registrar el cliente final. Se autocaptura su `external_reference`.\n3. **Cuentas** → crear la cuenta MT5 (o importar una existente). Se autocaptura el login.\n4. **Estrategias** → convertir una cuenta en estrategia seguible. El motor crea sola la cuenta PAYMENT que recibirá los fees.\n5. **Cuenta maestra** → fondearla (OTP al email del ADMIN). Sin saldo no hay depósitos.\n6. **Capital** → depositar en la cuenta del cliente.\n7. **Suscripciones** → validar elegibilidad y suscribir.\n8. **Reportes** → conciliar.\n\nLos requests que crean algo guardan el id en variables de colección, así que se pueden correr en orden sin copiar y pegar.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "X-API-Key",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{api_key}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://transactionalapi.branchtech.co/mam"
+    },
+    {
+      "key": "api_key",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "external_reference",
+      "value": ""
+    },
+    {
+      "key": "mt5_login",
+      "value": ""
+    },
+    {
+      "key": "leader_login",
+      "value": ""
+    },
+    {
+      "key": "allocation_id",
+      "value": ""
+    },
+    {
+      "key": "funding_id",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Salud",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/health"
+            },
+            "description": "No requiere API key. `config` resume qué configuración falta (solo códigos, nunca valores)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Clientes",
+      "item": [
+        {
+          "name": "Registrar cliente",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/traders"
+            },
+            "description": "Alta **local**: el motor MAM no conoce clientes, solo cuentas MT5.\n\n`max_active_leaders` es el cupo de estrategias simultáneas. Ese límite **no vive en el motor**: se resuelve acá y se envía en cada suscripción.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"cliente@example.com\",\n  \"first_name\": \"Juan\",\n  \"last_name\": \"Pérez\",\n  \"max_active_leaders\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "if (r.success) pm.collectionVariables.set('external_reference', r.data.external_reference);",
+                  "pm.test('respuesta OK', () => pm.expect(r.success).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar clientes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/traders?page=1&limit=20"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Detalle de cliente",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/traders/{{external_reference}}"
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Cuentas MT5",
+      "item": [
+        {
+          "name": "Crear cuenta nueva",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/accounts"
+            },
+            "description": "Crea la cuenta **en el servidor MT5 del broker**.\n\n`rights_profile` solo se puede fijar acá: ni el registro ni la edición posterior la cambian.\n\n⚠️ **No es idempotente**: ante un timeout, consultá por el login antes de reintentar — repetir a ciegas crea una segunda cuenta real.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"external_reference\": \"{{external_reference}}\",\n  \"first_name\": \"Juan\",\n  \"last_name\": \"Pérez\",\n  \"name\": \"Cuenta de Juan\",\n  \"username\": \"cliente@example.com\",\n  \"can_be_leader\": false,\n  \"can_be_follower\": true,\n  \"rights_profile\": \"TRADING_ENABLED\",\n  \"leverage\": 100,\n  \"currency\": \"USD\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "if (r.success) pm.collectionVariables.set('mt5_login', r.data.mt5_login);",
+                  "pm.test('respuesta OK', () => pm.expect(r.success).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Importar cuenta existente en el motor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/accounts/import"
+            },
+            "description": "Para cuentas que **el motor ya conoce** (creadas antes de la integración o por otro sistema). Las capacidades y el estado se toman del motor.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"external_reference\": \"{{external_reference}}\",\n  \"mt5_login\": \"7918229\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Registrar cuenta MT5 existente",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/accounts/register"
+            },
+            "description": "Para cuentas que existen **en MT5** pero el motor todavía no tiene. Si el motor ya la tiene, devuelve 409 → usar **Importar**.\n\nDespués del alta se consultan las métricas: si `mt5_reachable` es `false`, ese login no existe en el servidor del broker.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"external_reference\": \"{{external_reference}}\",\n  \"mt5_login\": \"146502\",\n  \"name\": \"Cuenta migrada\",\n  \"can_be_follower\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Listar cuentas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/accounts?page=1&limit=20"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Detalle de cuenta",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/accounts/{{mt5_login}}"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Balance y equity en vivo (MT5)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/accounts/{{mt5_login}}/metrics"
+            },
+            "description": "Consulta directa a MT5. Es el dato que decide la elegibilidad: el `min_deposit` se valida **solo** contra `balance`."
+          }
+        },
+        {
+          "name": "Credenciales MT5",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/accounts/{{mt5_login}}/credentials"
+            },
+            "description": "⚠️ Dato altamente sensible: devuelve las contraseñas en claro para entregárselas al titular. Solo existen para las cuentas que creó este servicio."
+          }
+        },
+        {
+          "name": "Asignar cliente / cambiar capacidades",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/accounts/{{mt5_login}}"
+            },
+            "description": "`external_reference` asocia la cuenta a un cliente — dato **solo de este servicio**. Hace falta en las cuentas importadas, que llegan sin dueño y sin él no pueden mover capital.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"external_reference\": \"{{external_reference}}\",\n  \"can_be_follower\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Estrategias (leader)",
+      "item": [
+        {
+          "name": "Crear estrategia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/leaders"
+            },
+            "description": "Convierte una cuenta en estrategia seguible. Si no tiene `can_be_leader`, se habilita sola antes.\n\n**Dejá `payment_account_login` fuera del body**: el motor crea sola la cuenta MT5 que recibirá los fees y devuelve su login. Ese login **ya no se puede reasignar** después.\n\n`performance_fee_rate` va entre 0 y 1: `0.20` es 20 %. Mandar `20` sería 2000 %.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"account_login\": \"{{leader_login}}\",\n  \"strategy_name\": \"Momentum Global\",\n  \"description\": \"Estrategia diversificada de seguimiento de tendencia.\",\n  \"leaderboard_visibility\": false,\n  \"min_deposit\": 100,\n  \"performance_fee_rate\": 0.2,\n  \"performance_fee_period\": \"MONTHLY\",\n  \"propagation_mode\": \"ORIGINAL_ONLY\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Importar estrategia existente",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/leaders/import?account_login={{leader_login}}"
+            },
+            "description": "Para perfiles que el motor ya tiene creados."
+          }
+        },
+        {
+          "name": "Listar estrategias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/leaders"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Detalle de estrategia",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/leaders/{{leader_login}}"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Actualizar estrategia",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/leaders/{{leader_login}}"
+            },
+            "description": "Cambiar `min_deposit` aplica a suscripciones **nuevas**: no da de baja a quienes ya estén por debajo.\n\nCambiar la tasa **no** reemplaza el High-Water Mark ni altera fees ya cobrados. Cada cambio queda auditado con quién lo hizo y el `note`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"performance_fee_rate\": 0.25,\n  \"note\": \"Ajuste acordado con el leader\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Saldo de la cuenta PAYMENT",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/leaders/{{leader_login}}/payment-account"
+            },
+            "description": "Para habilitar un retiro usá `withdrawable`, **no** `balance`: excluye el crédito MT5, que no se puede retirar."
+          }
+        },
+        {
+          "name": "Retirar fees de la PAYMENT",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/leaders/{{leader_login}}/payment-account/withdraw"
+            },
+            "description": "Retira dinero **ya acreditado**. No toca el balance operativo del leader ni recalcula el fee.\n\nRepetir con la misma key devuelve `ALREADY_PROCESSED` sin volver a debitar; con **otro monto** devuelve 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 100,\n  \"idempotency_key\": \"payment-withdrawal:crm-001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Cuenta maestra (tesorería)",
+      "item": [
+        {
+          "name": "Saldo de la cuenta maestra",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/master-account"
+            },
+            "description": "`available = balance − pending_debit`. De acá sale el capital de los depósitos."
+          }
+        },
+        {
+          "name": "Fondear · paso 1: pedir OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/master-account/funding"
+            },
+            "description": "**Solo ADMIN.** Envía un OTP al email del api_user autenticado. El saldo **no** se acredita todavía.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 1000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "if (r.success) pm.collectionVariables.set('funding_id', r.data.id);",
+                  "pm.test('respuesta OK', () => pm.expect(r.success).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Fondear · paso 2: confirmar con el código",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/master-account/funding/{{funding_id}}/verify"
+            },
+            "description": "Acredita `debit MASTER_ACCOUNT / credit EXTERNAL_FUNDING`. Idempotente.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Reenviar OTP",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/master-account/funding/{{funding_id}}/resend"
+            },
+            "description": "Regenera el código si venció o se agotaron los intentos.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Capital",
+      "item": [
+        {
+          "name": "Depositar en la cuenta del cliente",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/accounts/{{mt5_login}}/deposits"
+            },
+            "description": "De la cuenta maestra a la cuenta MT5. El saldo se **reserva primero**; si el motor rechaza, se libera.\n\nDerivá la `idempotency_key` del id de tu transacción y **no la regeneres al reintentar**.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 500,\n  \"idempotency_key\": \"deposit:crm-84922\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retirar de la cuenta del cliente",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/accounts/{{mt5_login}}/withdrawals"
+            },
+            "description": "⚠️ **Cobra primero el performance fee vencido.** El motor rechaza si el free margin restante no cubre el fee más el monto: no hay retiros parciales.\n\nEl fee viene en `perf_fee_at_request` y **no vuelve a la cuenta maestra** — va a la PAYMENT del leader, con asiento propio contra `PERF_FEE_PAID`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 100,\n  \"idempotency_key\": \"withdrawal:crm-84923\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Historial contable según el motor",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/accounts/{{mt5_login}}/balance-transactions?limit=50"
+            },
+            "description": "Contraparte de `/movements`: acá aparecen también los movimientos que no originamos nosotros (créditos de fee, ajustes del broker). Para ver un crédito de fee: `transaction_type=PF_CREDIT&status=EXECUTED`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Suscripciones",
+      "item": [
+        {
+          "name": "¿Puede suscribirse?",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/allocations/eligibility"
+            },
+            "description": "Valida **sin crear nada**. Comprueba dos cosas de distinta procedencia: el **mínimo de la estrategia**, que valida el motor contra el balance real en MT5, y el **cupo del plan del cliente**, que resuelve este servicio.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"leader_login\": \"{{leader_login}}\",\n  \"follower_login\": \"{{mt5_login}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Suscribir",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/allocations"
+            },
+            "description": "`mode_parameter` cambia de significado según el modo: **obligatorio** en `FIXED` (lotes fijos) y `SCALED` (multiplicador); opcional en `EQUITY`, `EQUITY_ROUND_DOWN` y `BALANCE`, donde omitirlo equivale a 1. Siempre > 0.\n\n`equity_stop`: si el equity del cliente cae hasta ahí, la suscripción se detiene y sus operaciones copiadas se cierran.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"leader_login\": \"{{leader_login}}\",\n  \"follower_login\": \"{{mt5_login}}\",\n  \"allocation_mode\": \"EQUITY\",\n  \"mode_parameter\": 1,\n  \"equity_stop\": 50,\n  \"unsubscribe_policy\": \"CLOSE_ON_UNSUBSCRIBE\",\n  \"activate\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "if (r.success) pm.collectionVariables.set('allocation_id', r.data.allocation_id);",
+                  "pm.test('respuesta OK', () => pm.expect(r.success).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Importar suscripción existente",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/allocations/import?allocation_id=1634"
+            },
+            "description": "Para relaciones que el motor ya tiene. Importa más de lo que parece: una suscripción que no conocemos consume el cupo del plan y participa en la detección de ciclos del motor."
+          }
+        },
+        {
+          "name": "Listar suscripciones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/allocations?limit=20"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Detalle de suscripción",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/allocations/{{allocation_id}}"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Cambiar configuración",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/allocations/{{allocation_id}}"
+            },
+            "description": "⚠️ **No sirve para dar de baja**: para eso está `/unsubscribe`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"allocation_mode\": \"SCALED\",\n  \"mode_parameter\": 0.5,\n  \"note\": \"Ajuste de riesgo\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Pausar / reactivar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/allocations/{{allocation_id}}/status"
+            },
+            "description": "**No pauses una suscripción con posiciones abiertas** sin definir antes cómo se van a administrar: quedan vivas en MT5 sin que nadie las siga.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"PAUSED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Dar de baja",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/allocations/{{allocation_id}}/unsubscribe"
+            },
+            "description": "**Esta es la forma correcta de terminar una relación.** Aplica la política configurada y cobra el fee pendiente.\n\nCon `CLOSE_ON_UNSUBSCRIBE` **no es instantáneo**: queda en `STOPPING` hasta que cierran las posiciones. **No repitas la llamada** — usá **Sincronizar**.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Sincronizar bajas en curso (cron)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mam/allocations/sync"
+            },
+            "description": "Refresca las que quedaron en `STOPPING`. Sin esto, nuestra base diría `STOPPING` para siempre aunque el motor ya las haya terminado.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Movimientos y reportes",
+      "item": [
+        {
+          "name": "Listar movimientos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/movements?page=1&limit=20"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Detalle de movimiento",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/movements/{{movement_id}}"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Plan de cuentas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ledger/accounts"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Asientos contables",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/ledger/transactions?limit=20"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Saldos por cliente",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reports/balances"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Resumen diario",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/reports/daily"
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Administración (ADMIN)",
+      "item": [
+        {
+          "name": "Listar api_users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/api-users"
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Crear api_user + API key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/api-users"
+            },
+            "description": "La API key se muestra **una sola vez**: en la base solo queda el hash.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Integración CRM\",\n  \"email\": \"crm@example.com\",\n  \"role\": \"USER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Regenerar API key",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/api-users/{{api_user_id}}/regenerate-key"
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

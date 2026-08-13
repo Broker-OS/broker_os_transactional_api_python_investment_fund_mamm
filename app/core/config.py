@@ -41,6 +41,17 @@ class Settings(BaseSettings):
     # Grupo MT5 real asignado por el broker. SIN ESTE DATO NO SE PUEDEN CREAR
     # CUENTAS: los endpoints de provisioning fallan de forma explicita.
     MAM_MT5_PLATFORM_GROUP: str = Field(default="")
+
+    # Grupos por capacidad. El broker los definio para el motor PAMM, que tenia
+    # roles rigidos (una cuenta era Master O Investor). En MAM una cuenta puede
+    # ser las dos cosas a la vez, y el grupo MT5 se fija SOLO al crearla: no se
+    # puede mover despues. Por eso la eleccion se hace por la capacidad con la
+    # que NACE la cuenta, y se puede pisar por request cuando haga falta.
+    #
+    # Si el broker define un grupo propio para MAM, se apunta MAM_MT5_PLATFORM_GROUP
+    # ahi y estos dos quedan vacios.
+    MAM_MT5_GROUP_LEADER: str = Field(default="")
+    MAM_MT5_GROUP_FOLLOWER: str = Field(default="")
     MAM_MT5_DEFAULT_LEVERAGE: int = Field(default=100, ge=1)
     # Nombre del servidor MT5 que se guarda en cada cuenta creada (3er dato que
     # el cliente necesita para entrar a la terminal).

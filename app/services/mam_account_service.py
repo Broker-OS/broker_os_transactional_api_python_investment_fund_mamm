@@ -69,6 +69,23 @@ class MamAccountService:
                 detail="Definir MT5_CREDENTIALS_ENCRYPTION_KEY en .env",
             )
 
+    @staticmethod
+    def _group_for(can_be_leader: bool) -> str:
+        """Grupo MT5 con el que nace la cuenta.
+
+        El grupo se fija SOLO al crear: no se puede mover la cuenta despues. Por
+        eso se elige por la capacidad con la que nace, no por la que tenga mas
+        adelante — una cuenta que arranca como follower y luego se habilita como
+        leader se queda en el grupo de follower, y eso es correcto: cambiarla de
+        grupo no esta en nuestras manos.
+
+        Si el broker define un grupo unico para MAM, MAM_MT5_PLATFORM_GROUP lo
+        cubre todo y los dos especificos quedan vacios.
+        """
+        especifico = (settings.MAM_MT5_GROUP_LEADER if can_be_leader
+                      else settings.MAM_MT5_GROUP_FOLLOWER)
+        return (especifico or "").strip() or settings.MAM_MT5_PLATFORM_GROUP
+
     async def _resolve_trader(self, external_reference: Optional[str], *,
                              caller=None) -> Optional[Trader]:
         if not external_reference:
@@ -144,11 +161,12 @@ class MamAccountService:
         rights = (settings.MAM_MT5_RIGHTS_TRADING_ENABLED
                   if rights_profile == "TRADING_ENABLED"
                   else settings.MAM_MT5_RIGHTS_TRADING_DISABLED)
+        group = platform_group or self._group_for(can_be_leader)
 
         data = await self._client.create_account(
             first_name=first_name, last_name=last_name, name=name, username=username,
             can_be_leader=can_be_leader, can_be_follower=can_be_follower,
-            platform_group=platform_group, leverage=leverage, rights=rights,
+            platform_group=group, leverage=leverage, rights=rights,
             currency=currency,
         )
         mt5_login = str(data.get("mt5_login") or "").strip()
