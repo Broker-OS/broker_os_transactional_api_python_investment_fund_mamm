@@ -87,6 +87,64 @@ apuntando a una base cuyo nombre contenga `test`.
 
 ---
 
+## Despliegue
+
+**URL:** https://transactionalapi.branchtech.co/mam/ · Swagger en
+[`/mam/docs`](https://transactionalapi.branchtech.co/mam/docs) · `GET /mam/health`
+no requiere API key.
+
+| | |
+|---|---|
+| Servidor | `51.68.202.101` (Ubuntu 24.04), usuario `api` |
+| Directorio | `/home/api/broker-os-mam` |
+| Servicio | `broker-os-mam.service` (uvicorn en `127.0.0.1:8200`) |
+| Base de datos | `brokeros_mam` en el Postgres local |
+| Proxy | bloque `location /mam/` en `/etc/nginx/sites-enabled/brokeros-multi` |
+
+Comparte servidor, dominio y certificado con el bridge PAMM (`/social-bridge/`,
+puerto 8100), pero **son servicios y bases distintas**: reiniciar uno no toca al
+otro.
+
+```bash
+sudo systemctl status broker-os-mam
+sudo journalctl -u broker-os-mam -f
+```
+
+### Deploy automático
+
+Un push a la rama **`production`** dispara
+[`.github/workflows/deploy-production.yml`](.github/workflows/deploy-production.yml):
+corre los tests del contrato MAM, y solo si pasan sube el código por SSH, aplica
+las migraciones, reinicia el servicio y verifica que la URL pública responda.
+También se puede lanzar a mano desde la pestaña **Actions**.
+
+El `.env` y el `venv` **del servidor no se tocan**: el deploy los preserva. Los
+secretos de la app viven solo allá.
+
+Requiere estos Secrets en *Settings → Secrets and variables → Actions*:
+
+| Secret | Valor |
+|---|---|
+| `DEPLOY_SSH_HOST` | `51.68.202.101` |
+| `DEPLOY_SSH_USER` | `api` |
+| `DEPLOY_SSH_PASSWORD` | la del servidor |
+| `DEPLOY_REMOTE_DIR` | `/home/api/broker-os-mam` |
+| `DEPLOY_SERVICE_NAME` | `broker-os-mam` |
+| `DEPLOY_HEALTH_PORT` | `8200` |
+
+### Crear una API key
+
+```bash
+cd /home/api/broker-os-mam
+./venv/bin/python -m scripts.create_api_key "Nombre" email@dominio.com ADMIN
+```
+
+La key se imprime **una sola vez** (en la base solo queda el hash). Una key sin
+`api_user` asociado no sirve: la autenticación la resuelve hasta su dueño para
+saber qué rol tiene.
+
+---
+
 ## Autenticación y roles
 
 Todos los endpoints bajo `/api/v1` requieren el header **`X-API-Key`**.
