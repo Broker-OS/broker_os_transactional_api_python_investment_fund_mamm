@@ -1,0 +1,1385 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>USDL Lab — Dólares de Luis</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --linea:#2a303c; --txt:#e6e9ef; --sut:#8b93a7;
+    --hover:#222835; --hondo:#0b0d11;
+    --ok:#3ddc97; --err:#ff6b6b; --acc:#ffb020; --acc2:#4ea8ff;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f5f6f8; --card:#fff; --linea:#dfe3e9; --txt:#1a1d23; --sut:#5d6573;
+           --hover:#eef0f4; --hondo:#f0f2f5; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font:14px/1.55 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:24px 18px 60px}
+  h1{font-size:22px;margin:0 0 4px}
+  h1 small{font-weight:400;color:var(--sut);font-size:14px}
+  h2{font-size:15px;margin:0 0 4px}
+  .hint{color:var(--sut);margin:0 0 14px;font-size:13px}
+  .card{background:var(--card);border:1px solid var(--linea);border-radius:12px;
+        padding:18px;margin-bottom:16px}
+  nav{display:flex;gap:4px;margin:18px 0 16px;flex-wrap:wrap;
+      background:var(--card);border:1px solid var(--linea);border-radius:11px;padding:4px}
+  nav button{background:transparent;border:0;color:var(--sut);font:inherit;font-size:13.5px;
+             padding:9px 18px;border-radius:8px;cursor:pointer;font-weight:500;
+             transition:background .15s,color .15s}
+  nav button:hover{color:var(--txt);background:var(--hover)}
+  nav button.on{background:var(--acc);color:#141414;font-weight:650}
+
+  button{font:inherit}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    background:transparent;border:1px solid var(--linea);color:var(--txt);
+    padding:0 16px;height:38px;border-radius:9px;cursor:pointer;
+    font-size:13.5px;font-weight:500;line-height:1;white-space:nowrap;
+    transition:background .15s,border-color .15s,transform .06s,filter .15s;
+  }
+  .btn:hover:not(:disabled){background:var(--hover);border-color:var(--sut)}
+  .btn:active:not(:disabled){transform:translateY(1px)}
+  .btn:focus-visible{outline:2px solid var(--acc2);outline-offset:2px}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn.primary{background:var(--acc);border-color:var(--acc);color:#141414;font-weight:650;
+               box-shadow:0 1px 0 rgba(0,0,0,.18)}
+  .btn.primary:hover:not(:disabled){filter:brightness(1.08);background:var(--acc)}
+  .btn.mini{height:28px;padding:0 11px;font-size:12px;border-radius:7px;font-weight:500}
+  .btn.peligro:hover:not(:disabled){border-color:var(--err);color:var(--err)}
+
+  .actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:14px}
+  label{display:block;font-size:12px;color:var(--sut);margin:12px 0 5px;font-weight:500}
+  input,select,textarea{width:100%;background:var(--hondo);color:var(--txt);
+    border:1px solid var(--linea);border-radius:9px;padding:0 12px;height:38px;font:inherit;
+    transition:border-color .15s}
+  textarea{height:auto;padding:10px 12px}
+  input:focus,select:focus,textarea:focus{outline:0;border-color:var(--acc2)}
+  select{cursor:pointer}
+  textarea{font-family:ui-monospace,Consolas,monospace;font-size:12px;min-height:110px}
+  .comprobante{margin-top:16px;border:1px solid var(--ok);border-radius:11px;overflow:hidden;
+               display:none}
+  .comprobante.show{display:block}
+  .comprobante header{background:var(--hondo);padding:11px 15px;font-size:13px;
+                      font-weight:600;border-bottom:1px solid var(--linea);
+                      display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .comprobante .cuerpo{padding:15px}
+  .campo{margin-bottom:14px}
+  .campo:last-child{margin-bottom:0}
+  .campo .tit{font-size:11px;text-transform:uppercase;letter-spacing:.5px;
+              color:var(--sut);margin-bottom:6px;display:flex;
+              justify-content:space-between;align-items:center;gap:10px}
+  .campo pre{margin:0;background:var(--hondo);border:1px solid var(--linea);
+             border-radius:8px;padding:11px 13px;font-family:ui-monospace,Consolas,monospace;
+             font-size:12px;overflow-x:auto;white-space:pre;color:var(--txt)}
+  .campo pre.envolver{white-space:pre-wrap;word-break:break-all}
+  .destino{margin-top:7px;font-size:12.5px;min-height:19px;display:flex;
+           align-items:center;gap:7px}
+  .atajos{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:9px;
+          font-size:12px;color:var(--sut)}
+  .atajos select{height:28px;padding:0 8px;font-size:12px}
+  .destino.bien{color:var(--ok)}
+  .destino.info{color:var(--sut)}
+  .destino.ojo{color:var(--acc)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  .pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;
+        border:1px solid var(--linea);color:var(--sut);margin-right:6px}
+  .pill.ok{border-color:var(--ok);color:var(--ok)}
+  .pill.err{border-color:var(--err);color:var(--err)}
+  /* Panel de salida: cabecera con acciones + cuerpo desplazable. */
+  .out{margin-top:13px;border-radius:10px;background:var(--hondo);
+       border:1px solid var(--linea);display:none;overflow:hidden}
+  .out.show{display:block}
+  .out.ok{border-color:var(--ok)}
+  .out.err{border-color:var(--err)}
+  .out.trabajando{border-color:var(--acc2)}
+  .out-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+            padding:7px 8px 7px 13px;border-bottom:1px solid var(--linea);
+            font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;
+            color:var(--sut)}
+  .out.ok .out-head{color:var(--ok)}
+  .out.err .out-head{color:var(--err)}
+  .out-acciones{display:flex;gap:6px;flex:0 0 auto}
+  .out pre{margin:0;padding:12px 14px;font-family:ui-monospace,Consolas,monospace;
+           font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;
+           color:var(--txt);max-height:440px;overflow:auto}
+  .out .sep{color:var(--linea)}
+  .tablaWrap{overflow-x:auto;margin-top:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
+  th{text-align:left;color:var(--sut);font-weight:500;font-size:12px;
+     border-bottom:1px solid var(--linea);padding:8px 10px 8px 0}
+  td{padding:9px 10px 9px 0;border-bottom:1px solid var(--linea);vertical-align:top}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;padding-right:16px}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  .clave{color:var(--err);font-family:ui-monospace,Consolas,monospace;font-size:11px;
+         word-break:break-all}
+  .aviso{border-left:3px solid var(--acc);padding:10px 14px;background:var(--bg);
+         border-radius:0 8px 8px 0;font-size:13px;color:var(--sut);margin-top:12px}
+  a{color:var(--acc2)}
+  .duenio{color:var(--acc);font-size:11px}
+  td.sut{color:var(--sut);font-style:italic}
+  /* La receptora no es una cuenta propia: se despega del resto con aire y un
+     separador, en vez de pintarle una barra pegada al borde. */
+  tr.receptora td{background:var(--hondo);border-top:1px dashed var(--linea);
+                  border-bottom:0;padding-top:15px;padding-bottom:15px}
+  tr.receptora td:first-child{padding-left:13px}
+  tr.receptora td:last-child{padding-right:13px}
+  .etiqueta{display:inline-block;margin-top:5px;padding:2px 9px;border-radius:99px;
+            font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;
+            background:color-mix(in srgb, var(--acc2) 14%, transparent);
+            color:var(--acc2);border:1px solid color-mix(in srgb, var(--acc2) 38%, transparent)}
+  .sinclave{color:var(--sut);font-size:11px;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>USDL Lab <small>— Dólares de Luis · BNB Smart Chain testnet</small></h1>
+  <div style="margin-top:10px">
+    <span class="pill" id="pRed">conectando…</span>
+    <span class="pill" id="pBloque">bloque —</span>
+    <span class="pill" id="pToken">token —</span>
+  </div>
+
+  <nav>
+    <button data-tab="cuentas" class="on">Cuentas</button>
+    <button data-tab="transferir">Transferir</button>
+    <button data-tab="tenedores">Tenedores del token</button>
+    <button data-tab="config">Configuración</button>
+  </nav>
+
+  <!-- ══════════════ CUENTAS ══════════════ -->
+  <section id="tab-cuentas">
+    <div class="card">
+      <h2>Crear cuentas</h2>
+      <p class="hint">Una cuenta es un par de claves. Se genera acá, en tu navegador —
+        gratis e instantáneo, sin tocar la red.</p>
+      <div class="grid">
+        <div>
+          <label>¿Cuántas?</label>
+          <input id="nCuentas" type="number" value="1" min="1" max="50">
+        </div>
+      </div>
+      <div class="actions">
+        <button id="btnCrear" class="btn primary">Crear</button>
+        <button id="btnImportar" class="btn">Importar clave privada</button>
+      </div>
+      <div id="outCrear" class="out"></div>
+    </div>
+
+    <div class="card">
+      <h2>Fondear una cuenta</h2>
+      <p class="hint">Las cuentas nuevas nacen vacías. La <strong>tesorería</strong>
+        (dueña del contrato) les da tBNB para el gas y acuña los USDL.</p>
+      <div class="grid">
+        <div>
+          <label>Cuenta a fondear</label>
+          <select id="fdDest"></select>
+        </div>
+        <div>
+          <label>tBNB para el gas</label>
+          <input id="fdBnb" value="0.005">
+        </div>
+        <div>
+          <label>USDL a acuñar</label>
+          <input id="fdUsdl" value="10000">
+        </div>
+      </div>
+      <div class="actions">
+        <button id="btnFondear" class="btn primary">Fondear</button>
+      </div>
+      <div id="outFondear" class="out"></div>
+    </div>
+
+    <div class="card">
+      <h2>Mis cuentas</h2>
+      <p class="hint">Guardadas en este navegador. Nunca viajan a ningún servidor.</p>
+      <div class="actions">
+        <button id="btnRefrescar" class="btn">Actualizar saldos</button>
+        <button id="btnVerClaves" class="btn">Ocultar claves privadas</button>
+        <button id="btnTodasCred" class="btn">Ver credenciales completas</button>
+        <button id="btnBajar" class="btn">Descargar credenciales</button>
+        <button id="btnSembrar" class="btn">Restaurar las del laboratorio</button>
+      </div>
+      <div id="outCred" class="out"></div>
+      <div class="tablaWrap"><table id="tabla">
+        <thead><tr>
+          <th>Alias</th><th>Dirección (clave pública)</th>
+          <th class="num">tBNB</th><th class="num">USDL</th><th></th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table></div>
+      <div class="aviso">Son claves de <strong>testnet</strong>: no controlan nada de
+        valor real. Aun así, no las reutilices nunca en la red real.</div>
+    </div>
+  </section>
+
+  <!-- ══════════════ TRANSFERIR ══════════════ -->
+  <section id="tab-transferir" hidden>
+    <div class="card">
+      <h2>Transferir USDL</h2>
+      <p class="hint">Se firma acá y se manda a la testnet. Es una transacción real
+        de la red pública: queda para siempre y cualquiera puede verificarla.</p>
+      <div class="grid">
+        <div>
+          <label>Desde — la cuenta que paga</label>
+          <select id="trDesde"></select>
+        </div>
+        <div>
+          <label>Monto en USDL</label>
+          <input id="trMonto" value="250">
+        </div>
+      </div>
+
+      <label>Hacia — la dirección que recibe</label>
+      <input id="trHacia" class="mono" placeholder="0x…">
+      <div id="trAviso" class="destino"></div>
+      <div class="atajos">
+        <span>Rellenar con:</span>
+        <button id="btnBridge" class="btn mini">la receptora del bridge</button>
+        <select id="trMias" class="btn mini" style="width:auto">
+          <option value="">una cuenta mía…</option>
+        </select>
+      </div>
+      <div class="actions">
+        <button id="btnEnviar" class="btn primary">Enviar</button>
+      </div>
+      <div id="outEnviar" class="out"></div>
+
+      <div id="comprobante" class="comprobante">
+        <header>
+          <span>Comprobante — qué mandarle a la API</span>
+          <div class="out-acciones">
+            <button id="btnAbrirDocs" class="btn mini">Abrir el panel de la API</button>
+            <button id="btnCerrarComp" class="btn mini" title="Cerrar">✕</button>
+          </div>
+        </header>
+        <div class="cuerpo">
+          <div class="campo">
+            <div class="tit"><span>Endpoint</span></div>
+            <pre class="envolver" id="cpUrl"></pre>
+          </div>
+          <div class="campo">
+            <div class="tit"><span>Cabeceras</span>
+              <button class="btn mini" data-copiar-de="cpHead">Copiar</button></div>
+            <pre class="envolver" id="cpHead"></pre>
+          </div>
+          <div class="campo">
+            <div class="tit"><span>Body (esto es lo que pegás en Swagger)</span>
+              <button class="btn mini" data-copiar-de="cpBody">Copiar body</button></div>
+            <pre id="cpBody"></pre>
+          </div>
+          <div class="campo">
+            <div class="tit"><span>…o todo junto, desde la terminal</span>
+              <button class="btn mini" data-copiar-de="cpCurl">Copiar curl</button></div>
+            <pre class="envolver" id="cpCurl"></pre>
+          </div>
+          <div id="cpNota" class="aviso"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ TENEDORES ══════════════ -->
+  <section id="tab-tenedores" hidden>
+    <div class="card">
+      <h2>Quién tiene USDL</h2>
+      <p class="hint">Recorre la cadena desde que se creó el token y reconstruye el saldo de
+        <strong>todas</strong> las direcciones — incluidas las que esta herramienta no conoce.
+        No hace falta tener sus claves: la blockchain es pública.</p>
+      <div class="actions">
+        <button id="btnEscanear" class="btn primary">Escanear la cadena</button>
+      </div>
+      <div id="outEscaneo" class="out"></div>
+      <div class="tablaWrap"><table id="tablaTen">
+        <thead><tr>
+          <th>Dirección</th><th>Quién es</th>
+          <th class="num">USDL</th><th class="num">% del total</th>
+        </tr></thead>
+        <tbody id="tbodyTen"></tbody>
+      </table></div>
+      <div class="aviso">Al terminar se compara la suma de los saldos contra el
+        <span class="mono">totalSupply()</span> del contrato. Si no cuadran, el escaneo
+        arrancó tarde y falta historia: bajá el <strong>bloque inicial</strong> en
+        Configuración.</div>
+    </div>
+  </section>
+
+  <!-- ══════════════ CONFIG ══════════════ -->
+  <section id="tab-config" hidden>
+    <div class="card">
+      <h2>Red y contrato</h2>
+      <label>Nodo RPC de la testnet</label>
+      <input id="cfRpc" class="mono">
+      <label>Contrato USDL</label>
+      <input id="cfToken" class="mono">
+      <label>Dirección receptora del bridge</label>
+      <input id="cfRecv" class="mono">
+      <label>Nodo para leer el historial (necesita soportar <span class="mono">eth_getLogs</span>)</label>
+      <input id="cfRpcLogs" class="mono">
+      <label>Bloque inicial del escaneo (aquel en que se creó el token)</label>
+      <input id="cfBloque" class="mono">
+      <div class="actions">
+        <button id="btnGuardarCfg" class="btn primary">Guardar</button>
+        <button id="btnResetCfg" class="btn">Volver a los valores por defecto</button>
+      </div>
+      <div id="outCfg" class="out"></div>
+    </div>
+
+    <div class="card">
+      <h2>API del bridge</h2>
+      <p class="hint">Solo se usa para armarte el comprobante listo para copiar.
+        La clave se guarda en este navegador y no se envía a ningún lado.</p>
+      <label>URL base de la API</label>
+      <input id="cfApi" class="mono">
+      <label>API key (cabecera X-API-Key)</label>
+      <input id="cfKey" class="mono" placeholder="csb_…">
+      <div class="actions">
+        <button id="btnGuardarApi" class="btn primary">Guardar</button>
+      </div>
+      <div id="outApi" class="out"></div>
+    </div>
+
+    <div class="card">
+      <h2>Importar el laboratorio</h2>
+      <p class="hint">Pegá acá el contenido de <span class="mono">.testnet-lab.json</span>
+        para traer la tesorería y las cuentas que ya existen.</p>
+      <textarea id="txtImport" placeholder='{ "tesoreria": {...}, "contrato": "0x…", "cuentas": [...] }'></textarea>
+      <div class="actions">
+        <button id="btnImportarJson" class="btn primary">Importar</button>
+        <button id="btnBorrarTodo" class="btn peligro">Borrar todas mis cuentas</button>
+      </div>
+      <div id="outImport" class="out"></div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+"use strict";
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CRIPTOGRAFÍA
+   Sin MetaMask nadie firma por nosotros, así que hay que hacerlo a mano:
+   keccak-256, secp256k1 y RLP. Todo con BigInt nativo, sin dependencias.
+   Validado contra los vectores de prueba de EIP-155.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+// ── keccak-256 (el de Ethereum, NO el SHA3-256 estándar: cambia el padding) ──
+const MASK64 = (1n << 64n) - 1n;
+const RC = [
+  0x0000000000000001n,0x0000000000008082n,0x800000000000808an,0x8000000080008000n,
+  0x000000000000808bn,0x0000000080000001n,0x8000000080008081n,0x8000000000008009n,
+  0x000000000000008an,0x0000000000000088n,0x0000000080008009n,0x000000008000000an,
+  0x000000008000808bn,0x800000000000008bn,0x8000000000008089n,0x8000000000008003n,
+  0x8000000000008002n,0x8000000000000080n,0x000000000000800an,0x800000008000000an,
+  0x8000000080008081n,0x8000000000008080n,0x0000000080000001n,0x8000000080008008n];
+const RHO = [ 0, 1,62,28,27, 36,44, 6,55,20,  3,10,43,25,39,
+             41,45,15,21, 8, 18, 2,61,56,14];
+
+function rotl64(x, n){
+  const b = BigInt(n);
+  return ((x << b) | (x >> (64n - b))) & MASK64;
+}
+
+function keccakF(A){
+  for(let ronda = 0; ronda < 24; ronda++){
+    const C = new Array(5), D = new Array(5);
+    for(let x = 0; x < 5; x++) C[x] = A[x]^A[x+5]^A[x+10]^A[x+15]^A[x+20];
+    for(let x = 0; x < 5; x++) D[x] = C[(x+4)%5] ^ rotl64(C[(x+1)%5], 1);
+    for(let x = 0; x < 5; x++) for(let y = 0; y < 5; y++) A[x+5*y] ^= D[x];
+
+    const B = new Array(25).fill(0n);
+    for(let x = 0; x < 5; x++) for(let y = 0; y < 5; y++)
+      B[y + 5*((2*x + 3*y) % 5)] = rotl64(A[x+5*y], RHO[x+5*y]);
+
+    for(let x = 0; x < 5; x++) for(let y = 0; y < 5; y++)
+      A[x+5*y] = B[x+5*y] ^ ((~B[(x+1)%5 + 5*y] & MASK64) & B[(x+2)%5 + 5*y]);
+
+    A[0] ^= RC[ronda];
+  }
+}
+
+function keccak256(msg){
+  const RATE = 136;                       // 1088 bits, el de keccak-256
+  const A = new Array(25).fill(0n);
+  const relleno = RATE - (msg.length % RATE);
+  const buf = new Uint8Array(msg.length + relleno);
+  buf.set(msg);
+  buf[msg.length] = 0x01;                 // 0x01 (keccak), no 0x06 (SHA3)
+  buf[buf.length - 1] |= 0x80;
+
+  for(let off = 0; off < buf.length; off += RATE){
+    for(let i = 0; i < RATE/8; i++){
+      let lane = 0n;
+      for(let b = 7; b >= 0; b--) lane = (lane << 8n) | BigInt(buf[off + i*8 + b]);
+      A[i] ^= lane;
+    }
+    keccakF(A);
+  }
+  const out = new Uint8Array(32);
+  for(let i = 0; i < 4; i++){
+    let lane = A[i];
+    for(let b = 0; b < 8; b++){ out[i*8+b] = Number(lane & 0xffn); lane >>= 8n; }
+  }
+  return out;
+}
+
+// ── secp256k1 ──
+const P  = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
+const N  = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+const GX = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n;
+const GY = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8n;
+
+function mod(a, m){ const r = a % m; return r >= 0n ? r : r + m; }
+
+/** Euclides extendido: devuelve x tal que a·x ≡ 1 (mod m). */
+function invMod(a, m){
+  let [viejo_r, r] = [mod(a, m), m];
+  let [viejo_x, x] = [1n, 0n];
+  while(r !== 0n){
+    const q = viejo_r / r;
+    [viejo_r, r] = [r, viejo_r - q*r];
+    [viejo_x, x] = [x, viejo_x - q*x];
+  }
+  return mod(viejo_x, m);
+}
+
+// Puntos en coordenadas afines: {x, y} o null para el punto al infinito.
+function pDoble(pt){
+  if(!pt) return null;
+  if(pt.y === 0n) return null;
+  const l = mod(3n * pt.x * pt.x * invMod(2n * pt.y, P), P);
+  const x = mod(l*l - 2n*pt.x, P);
+  return { x, y: mod(l * (pt.x - x) - pt.y, P) };
+}
+
+function pSuma(a, b){
+  if(!a) return b;
+  if(!b) return a;
+  if(a.x === b.x){
+    return (mod(a.y + b.y, P) === 0n) ? null : pDoble(a);
+  }
+  const l = mod((b.y - a.y) * invMod(mod(b.x - a.x, P), P), P);
+  const x = mod(l*l - a.x - b.x, P);
+  return { x, y: mod(l * (a.x - x) - a.y, P) };
+}
+
+function pMul(k, pt){
+  let res = null, sum = pt;
+  while(k > 0n){
+    if(k & 1n) res = pSuma(res, sum);
+    sum = pDoble(sum);
+    k >>= 1n;
+  }
+  return res;
+}
+
+const G = { x: GX, y: GY };
+
+// ── helpers de bytes ──
+function hexABytes(h){
+  h = String(h).replace(/^0x/i, "");
+  if(h.length % 2) h = "0" + h;
+  const out = new Uint8Array(h.length / 2);
+  for(let i = 0; i < out.length; i++) out[i] = parseInt(h.substr(i*2, 2), 16);
+  return out;
+}
+function bytesAHex(b){
+  return Array.from(b).map(x => x.toString(16).padStart(2, "0")).join("");
+}
+function bigIntABytes(v, largo){
+  let h = v.toString(16);
+  if(h.length % 2) h = "0" + h;
+  let b = hexABytes(h);
+  if(largo === undefined) return (v === 0n) ? new Uint8Array(0) : b;
+  const out = new Uint8Array(largo);
+  out.set(b.slice(-largo), largo - Math.min(b.length, largo));
+  return out;
+}
+function unir(...arrays){
+  const total = arrays.reduce((s, a) => s + a.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for(const a of arrays){ out.set(a, off); off += a.length; }
+  return out;
+}
+
+// ── clave pública y dirección, a partir de la privada ──
+/** Punto de la curva: 64 bytes (x‖y). Es la clave pública sin comprimir. */
+function clavePublica(privHex){
+  const d = BigInt("0x" + String(privHex).replace(/^0x/i, ""));
+  if(d <= 0n || d >= N) throw new Error("Clave privada fuera de rango.");
+  const pub = pMul(d, G);
+  return unir(bigIntABytes(pub.x, 32), bigIntABytes(pub.y, 32));
+}
+
+/** Forma comprimida (33 bytes): prefijo por la paridad de y, más x. */
+function clavePublicaComprimida(privHex){
+  const d = BigInt("0x" + String(privHex).replace(/^0x/i, ""));
+  const pub = pMul(d, G);
+  return unir(new Uint8Array([(pub.y & 1n) ? 0x03 : 0x02]), bigIntABytes(pub.x, 32));
+}
+
+/** La dirección son los últimos 20 bytes del keccak de la clave pública. */
+function claveADireccion(privHex){
+  return "0x" + bytesAHex(keccak256(clavePublica(privHex)).slice(-20));
+}
+
+/** EIP-55: mayúsculas/minúsculas como suma de verificación. */
+function conChecksum(addr){
+  const limpia = addr.replace(/^0x/i, "").toLowerCase();
+  const h = bytesAHex(keccak256(new TextEncoder().encode(limpia)));
+  let out = "0x";
+  for(let i = 0; i < limpia.length; i++){
+    out += parseInt(h[i], 16) >= 8 ? limpia[i].toUpperCase() : limpia[i];
+  }
+  return out;
+}
+
+function nuevaClave(){
+  while(true){
+    const b = new Uint8Array(32);
+    crypto.getRandomValues(b);
+    const d = BigInt("0x" + bytesAHex(b));
+    if(d > 0n && d < N) return bytesAHex(b);
+  }
+}
+
+// ── RLP ──
+function rlpLargo(largo, offset){
+  if(largo < 56) return new Uint8Array([offset + largo]);
+  const lb = bigIntABytes(BigInt(largo));
+  return unir(new Uint8Array([offset + 55 + lb.length]), lb);
+}
+function rlp(item){
+  if(Array.isArray(item)){
+    const cuerpo = unir(...item.map(rlp));
+    return unir(rlpLargo(cuerpo.length, 0xc0), cuerpo);
+  }
+  if(item.length === 1 && item[0] < 0x80) return item;
+  return unir(rlpLargo(item.length, 0x80), item);
+}
+
+// ── firma ECDSA + EIP-155 ──
+function firmar(hash32, privHex, chainId){
+  const d = BigInt("0x" + String(privHex).replace(/^0x/i, ""));
+  const z = BigInt("0x" + bytesAHex(hash32));
+  while(true){
+    const kb = new Uint8Array(32);
+    crypto.getRandomValues(kb);
+    const k = BigInt("0x" + bytesAHex(kb));
+    if(k <= 0n || k >= N) continue;
+
+    const R = pMul(k, G);
+    const r = mod(R.x, N);
+    if(r === 0n) continue;
+
+    let s = mod(invMod(k, N) * (z + r*d), N);
+    if(s === 0n) continue;
+
+    let recid = Number((R.y & 1n) | (R.x >= N ? 2n : 0n));
+    // Firma canónica: s siempre en la mitad baja (lo exige la red).
+    if(s > N / 2n){ s = N - s; recid ^= 1; }
+
+    return { r, s, v: BigInt(recid + chainId*2 + 35) };
+  }
+}
+
+/** Arma y firma una transacción legacy (tipo 0) con protección EIP-155. */
+function firmarTx(tx, privHex, chainId){
+  const campos = [
+    bigIntABytes(BigInt(tx.nonce)),
+    bigIntABytes(BigInt(tx.gasPrice)),
+    bigIntABytes(BigInt(tx.gas)),
+    tx.to ? hexABytes(tx.to) : new Uint8Array(0),
+    bigIntABytes(BigInt(tx.value || 0)),
+    hexABytes(tx.data || "0x"),
+  ];
+  const paraFirmar = rlp([...campos, bigIntABytes(BigInt(chainId)),
+                          new Uint8Array(0), new Uint8Array(0)]);
+  const { r, s, v } = firmar(keccak256(paraFirmar), privHex, chainId);
+  return "0x" + bytesAHex(rlp([...campos, bigIntABytes(v),
+                               bigIntABytes(r), bigIntABytes(s)]));
+}
+
+/* ═══════════════ FIN CRIPTO ═══════════════ */
+
+// ── montos ──
+const DEC = 18;
+function aCrudo(txt){
+  const s = String(txt).trim();
+  if(!/^\d+(\.\d+)?$/.test(s)) throw new Error(`Monto inválido: "${txt}"`);
+  const [ent, fr = ""] = s.split(".");
+  return BigInt(ent + (fr + "0".repeat(DEC)).slice(0, DEC));
+}
+function aHumano(crudo, dec = DEC, decimalesVista = 6){
+  const s = crudo.toString().padStart(dec + 1, "0");
+  const ent = s.slice(0, -dec);
+  let fr = s.slice(-dec).replace(/0+$/, "");
+  if(fr.length > decimalesVista) fr = fr.slice(0, decimalesVista);
+  return fr ? `${ent}.${fr}` : ent;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   RED
+   ═══════════════════════════════════════════════════════════════════════ */
+const POR_DEFECTO = {
+  rpc: "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
+  token: "0xc56b00e3ab3e361bf6d89dbe14e6f6bbe1be5d27",
+  receptora: "0xed50040f721093d385a74ae4b89ebda46980d700",
+  api: "https://transactionalapi.branchtech.co/social-bridge",
+  key: "",
+  // Los nodos de bnbchain.org rechazan eth_getLogs ("limit exceeded"), así que
+  // el historial se lee de otro. Acepta rangos de hasta 10.000 bloques.
+  rpcLogs: "https://bsc-testnet-rpc.publicnode.com",
+  // Bloque en que se desplegó el contrato USDL. Escanear desde antes es solo
+  // más lento; desde después deja saldos afuera (y el chequeo final lo delata).
+  bloqueInicio: 123548468,
+};
+
+const CERO = "0x" + "0".repeat(40);
+const TOPIC_TRANSFER =
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const TRAMO = 9999;   // tope de bloques por consulta que aguanta el nodo
+const CHAIN_ID = 97;
+const EXPLORADOR = "https://testnet.bscscan.com";
+const GAS_MIN = 3n * (10n ** 9n);   // 3 gwei: piso habitual de BSC testnet
+
+const SEL = {
+  transfer:  "0xa9059cbb",
+  mint:      "0x40c10f19",
+  balanceOf: "0x70a08231",
+  owner:     "0x8da5cb5b",
+  totalSupply: "0x18160ddd",
+  symbol:    "0x95d89b41",
+};
+
+/**
+ * Las cuentas del laboratorio, ya cargadas: la tesorería (dueña del contrato,
+ * la única que puede acuñar) y las cinco de prueba. Vienen acá para no tener
+ * que importar el .testnet-lab.json cada vez que se abre la herramienta.
+ *
+ * ⚠️ Son claves de TESTNET. No controlan ni un centavo real y por eso pueden
+ *    vivir en un archivo. NUNCA reutilizar ninguna de estas cuentas en la red
+ *    real: cualquiera que lea este archivo puede firmar por ellas.
+ */
+const CUENTAS_INICIALES = [
+  { alias: "tesoreria", clave: "3740c0e9c6516544b21af950b8e24c8107e1e6081f3efc9b932268b19fdd45f0" },
+  { alias: "luis-1",    clave: "7415f50eb46fd43fbbd729be8e8b082b5fc2c982844a40fcc7a84f892d512c37" },
+  { alias: "luis-2",    clave: "c7fd797fa6bad18e54e94f0f0a7c75759373da355ea997fb6f6efaee88223b07" },
+  { alias: "luis-3",    clave: "9a990aac8bb22291062f153e21edc61657906530862762535e29176c78ad663b" },
+  { alias: "luis-4",    clave: "09b5ddea02e0477f2efa9cf057abcdcc0cd2a4544493efd72b7eb1d8fcb7d10f" },
+  { alias: "luis-5",    clave: "696e6a3915dcd6b4db9e6c6899f0a7816b2c6138d4cbc1789b3df61c25228f05" },
+];
+
+let cfg = { ...POR_DEFECTO };
+let cuentas = [];        // [{alias, address, clave}]
+let duenio = null;       // address del owner del contrato (la tesorería)
+
+let idRpc = 0;
+async function rpcCall(metodo, params, url){
+  const r = await fetch(url || cfg.rpc, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: ++idRpc, method: metodo,
+                           params: params || [] }),
+  });
+  if(!r.ok) throw new Error(`El nodo respondió ${r.status}`);
+  const j = await r.json();
+  if(j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+  return j.result;
+}
+
+const aInt = v => BigInt(v || 0);
+const pad32 = v => (typeof v === "bigint" ? v.toString(16) : String(v).replace(/^0x/i, ""))
+                     .toLowerCase().padStart(64, "0");
+
+async function saldoBnb(addr){ return aInt(await rpcCall("eth_getBalance", [addr, "latest"])); }
+async function saldoUsdl(addr){
+  return aInt(await rpcCall("eth_call",
+    [{ to: cfg.token, data: SEL.balanceOf + pad32(addr) }, "latest"]));
+}
+
+/** Firma, envía y espera el recibo. */
+async function enviarTx(clave, { to, data = "0x", value = 0n, gas }){
+  const desde = claveADireccion(clave);
+  const llamada = { from: desde, data, value: "0x" + value.toString(16) };
+  if(to) llamada.to = to;
+
+  if(gas === undefined){
+    gas = aInt(await rpcCall("eth_estimateGas", [llamada])) * 125n / 100n;
+  }
+  const precio = (x => x > GAS_MIN ? x : GAS_MIN)(aInt(await rpcCall("eth_gasPrice")));
+  const nonce = aInt(await rpcCall("eth_getTransactionCount", [desde, "pending"]));
+
+  const crudo = firmarTx({ nonce, gasPrice: precio, gas, to, value, data },
+                         clave, CHAIN_ID);
+  const hash = await rpcCall("eth_sendRawTransaction", [crudo]);
+
+  for(let i = 0; i < 90; i++){
+    const rec = await rpcCall("eth_getTransactionReceipt", [hash]);
+    if(rec && rec.blockNumber){
+      if(aInt(rec.status) !== 1n) throw new Error(`La transacción revirtió: ${hash}`);
+      return { hash, recibo: rec };
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  throw new Error(`No se confirmó a tiempo. Revisala en ${EXPLORADOR}/tx/${hash}`);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ALMACENAMIENTO
+   ═══════════════════════════════════════════════════════════════════════ */
+const LLAVE = "usdl-lab-v1";
+
+function guardar(){
+  localStorage.setItem(LLAVE, JSON.stringify({ cfg, cuentas }));
+}
+function cargar(){
+  let guardado = {};
+  try{ guardado = JSON.parse(localStorage.getItem(LLAVE) || "{}"); }
+  catch(e){ /* arranque limpio */ }
+  if(guardado.cfg) cfg = { ...POR_DEFECTO, ...guardado.cfg };
+  if(Array.isArray(guardado.cuentas)) cuentas = guardado.cuentas;
+
+  // Primera vez en este navegador: las del laboratorio ya tienen que estar.
+  // Si el usuario borró alguna a propósito, no se la devolvemos: solo sembramos
+  // cuando la lista está vacía.
+  if(!cuentas.length){ sembrarLaboratorio(); guardar(); }
+}
+
+/** Carga las cuentas del laboratorio que falten. Devuelve cuántas agregó. */
+function sembrarLaboratorio(){
+  let n = 0;
+  for(const c of CUENTAS_INICIALES){
+    if(agregarCuenta(c.clave, c.alias)) n++;
+  }
+  return n;
+}
+
+function agregarCuenta(clave, alias){
+  const address = claveADireccion(clave);
+  if(cuentas.some(c => c.address.toLowerCase() === address.toLowerCase())){
+    return null;                                   // ya la teníamos
+  }
+  const c = { alias: alias || `cuenta-${cuentas.length + 1}`,
+              address: conChecksum(address), clave: clave.replace(/^0x/i, "") };
+  cuentas.push(c);
+  return c;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   UI
+   ═══════════════════════════════════════════════════════════════════════ */
+const $ = id => document.getElementById(id);
+// Es un laboratorio de testnet: las claves se muestran por defecto. Si hubiera
+// algo de valor detrás, este default seria al reves.
+let mostrandoClaves = true;
+
+/**
+ * Volcado completo de una cuenta: todo lo que se puede derivar de su clave
+ * privada. La dirección es lo público; la privada es lo único que hay que
+ * cuidar — de ella salen las otras dos, no al revés.
+ */
+function credenciales(c){
+  const priv = c.clave.replace(/^0x/i, "");
+  const pub = bytesAHex(clavePublica(priv));
+  const comp = bytesAHex(clavePublicaComprimida(priv));
+  const dir = claveADireccion(priv);
+  return [
+    `alias                      : ${c.alias}`,
+    `dirección (con checksum)   : ${conChecksum(dir)}`,
+    `dirección (minúsculas)     : ${dir}`,
+    `clave privada              : 0x${priv}`,
+    `clave privada (sin 0x)     : ${priv}`,
+    `clave pública              : 0x04${pub}`,
+    `clave pública (comprimida) : 0x${comp}`,
+    `red                        : BNB Smart Chain testnet (chain ${CHAIN_ID})`,
+    `explorador                 : ${EXPLORADOR}/address/${dir}`,
+  ].join("\n");
+}
+
+/**
+ * Pinta un panel de salida con cabecera, botón de copiar y botón de cerrar.
+ * Antes esto era un `<div>` de texto plano que, una vez abierto, se quedaba
+ * para siempre y se pisaba con la operación siguiente.
+ */
+function mostrar(el, texto, clase, titulo){
+  el.className = "out show " + (clase || "");
+  el.innerHTML = "";
+
+  const cabecera = document.createElement("div");
+  cabecera.className = "out-head";
+  const rotulo = document.createElement("span");
+  rotulo.textContent = titulo || ({ ok: "Listo", err: "Error",
+                                    trabajando: "En curso" }[clase] || "Resultado");
+  const acciones = document.createElement("div");
+  acciones.className = "out-acciones";
+
+  // Mientras algo está en curso no ofrecemos copiar ni cerrar: no hay nada aún.
+  if(clase !== "trabajando"){
+    const copiarBtn = document.createElement("button");
+    copiarBtn.className = "btn mini";
+    copiarBtn.textContent = "Copiar";
+    copiarBtn.onclick = async () => {
+      await copiar(texto);
+      copiarBtn.textContent = "copiado ✓";
+      setTimeout(() => copiarBtn.textContent = "Copiar", 1100);
+    };
+    const cerrarBtn = document.createElement("button");
+    cerrarBtn.className = "btn mini";
+    cerrarBtn.textContent = "✕";
+    cerrarBtn.title = "Cerrar";
+    cerrarBtn.onclick = () => ocultar(el);
+    acciones.append(copiarBtn, cerrarBtn);
+  }
+
+  cabecera.append(rotulo, acciones);
+  const cuerpo = document.createElement("pre");
+  cuerpo.textContent = texto;
+  el.append(cabecera, cuerpo);
+}
+
+function ocultar(el){
+  if(!el) return;
+  el.className = "out";
+  el.innerHTML = "";
+}
+
+/** Cierra todo lo que haya quedado abierto de la operación anterior. */
+function limpiarSalidas(...ids){
+  for(const id of ids) ocultar($(id));
+}
+function ocupado(btn, si, textoOriginal){
+  btn.disabled = si;
+  if(si){ btn.dataset.txt = btn.textContent; btn.textContent = "Trabajando…"; }
+  else if(btn.dataset.txt){ btn.textContent = textoOriginal || btn.dataset.txt; }
+}
+async function copiar(txt){
+  try{ await navigator.clipboard.writeText(txt); }catch(e){}
+}
+
+async function refrescarRed(){
+  try{
+    const [chain, bloque] = await Promise.all([
+      rpcCall("eth_chainId"), rpcCall("eth_blockNumber")]);
+    const ok = Number(aInt(chain)) === CHAIN_ID;
+    $("pRed").textContent = ok ? "BNB testnet (97)" : `chain ${aInt(chain)} — ¡no es la 97!`;
+    $("pRed").className = "pill " + (ok ? "ok" : "err");
+    $("pBloque").textContent = "bloque " + aInt(bloque);
+
+    const cod = await rpcCall("eth_getCode", [cfg.token, "latest"]);
+    if(!cod || cod === "0x"){
+      $("pToken").textContent = "token no encontrado";
+      $("pToken").className = "pill err";
+      return;
+    }
+    $("pToken").textContent = "USDL " + cfg.token.slice(0, 8) + "…";
+    $("pToken").className = "pill ok";
+    const o = await rpcCall("eth_call", [{ to: cfg.token, data: SEL.owner }, "latest"]);
+    duenio = "0x" + o.slice(-40);
+  }catch(e){
+    $("pRed").textContent = "sin conexión con el nodo";
+    $("pRed").className = "pill err";
+  }
+}
+
+function pintarSelects(){
+  const opciones = cuentas.map(c =>
+    `<option value="${c.address}">${c.alias} — ${c.address.slice(0,10)}…</option>`).join("");
+  $("trDesde").innerHTML = opciones;
+  $("fdDest").innerHTML  = opciones;
+  $("trMias").innerHTML  = `<option value="">una cuenta mía…</option>` + opciones;
+}
+
+async function pintarTabla(conSaldos){
+  const tb = $("tbody");
+  if(!cuentas.length){
+    tb.innerHTML = `<tr><td colspan="5" style="color:var(--sut);padding:18px 0">
+      Todavía no hay cuentas. Creá una arriba, o importá el laboratorio desde Configuración.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = cuentas.map((c, i) => {
+    const esDuenio = duenio && c.address.toLowerCase() === duenio.toLowerCase();
+    return `<tr>
+      <td>${c.alias}${esDuenio ? '<br><span class="duenio">tesorería</span>' : ""}</td>
+      <td class="mono">${c.address}
+        ${mostrandoClaves ? `<div class="clave">${c.clave}</div>` : ""}</td>
+      <td class="num" id="b${i}">…</td>
+      <td class="num" id="u${i}">…</td>
+      <td style="white-space:nowrap">
+        <button class="btn mini" data-copiar="${c.address}">dirección</button>
+        <button class="btn mini" data-copiar="${c.clave}">clave</button>
+        <button class="btn mini" data-cred="${i}" title="Ver todo">⋯</button>
+        <button class="btn mini peligro" data-borrar="${i}" title="Borrar">✕</button>
+      </td></tr>`;
+  }).join("");
+
+  // La receptora del bridge no es una cuenta nuestra: no tenemos su clave y por
+  // eso no puede firmar nada. Va igual, al final y en solo lectura, porque es
+  // donde se acumula lo cobrado y mirarlo es la mitad de las pruebas.
+  if(cfg.receptora && !cuentas.some(c => c.address.toLowerCase() === cfg.receptora.toLowerCase())){
+    tb.insertAdjacentHTML("beforeend", `<tr class="receptora">
+      <td>receptora<br><span class="etiqueta">caja del bridge</span></td>
+      <td class="mono">${conChecksum(cfg.receptora)}
+        <div class="sinclave">Solo lectura: no tenés su clave privada.</div></td>
+      <td class="num" id="bR">…</td>
+      <td class="num" id="uR">…</td>
+      <td style="white-space:nowrap">
+        <button class="btn mini" data-copiar="${cfg.receptora}">dirección</button>
+      </td></tr>`);
+  }
+
+  document.querySelectorAll("[data-copiar]").forEach(b =>
+    b.onclick = async () => {
+      await copiar(b.dataset.copiar);
+      const t = b.textContent; b.textContent = "copiado"; setTimeout(() => b.textContent = t, 900);
+    });
+  document.querySelectorAll("[data-cred]").forEach(b =>
+    b.onclick = () => mostrar($("outCred"),
+      credenciales(cuentas[Number(b.dataset.cred)]), "ok",
+      `Credenciales · ${cuentas[Number(b.dataset.cred)].alias}`));
+  document.querySelectorAll("[data-borrar]").forEach(b =>
+    b.onclick = () => {
+      if(!confirm("¿Borrar esta cuenta del navegador? La clave se pierde.")) return;
+      cuentas.splice(Number(b.dataset.borrar), 1);
+      guardar(); pintarSelects(); pintarTabla(true);
+    });
+
+  if(conSaldos === false) return;
+  if($("bR")){
+    saldoBnb(cfg.receptora).then(v => $("bR") && ($("bR").textContent = aHumano(v)))
+      .catch(() => {});
+    saldoUsdl(cfg.receptora).then(v => $("uR") && ($("uR").textContent = aHumano(v, DEC, 2)))
+      .catch(() => {});
+  }
+  cuentas.forEach(async (c, i) => {
+    try{
+      const [b, u] = await Promise.all([saldoBnb(c.address), saldoUsdl(c.address)]);
+      const eb = $("b" + i), eu = $("u" + i);
+      if(eb) eb.textContent = aHumano(b);
+      if(eu) eu.textContent = aHumano(u, DEC, 2);
+    }catch(e){}
+  });
+}
+
+function todo(){ pintarSelects(); pintarTabla(true); }
+
+// ── crear / importar ──
+$("btnCrear").onclick = () => {
+  limpiarSalidas("outCred");
+  const n = Math.max(1, Math.min(50, Number($("nCuentas").value) || 1));
+  const nuevas = [];
+  for(let i = 0; i < n; i++){
+    const c = agregarCuenta(nuevaClave());
+    if(c) nuevas.push(c);
+  }
+  guardar(); todo();
+  mostrar($("outCrear"),
+    nuevas.map(credenciales).join("\n" + "─".repeat(58) + "\n") +
+    "\n\nGuardadas en este navegador. Todavía no tienen tBNB ni USDL: fondealas abajo.",
+    "ok", nuevas.length === 1 ? "Cuenta creada" : `${nuevas.length} cuentas creadas`);
+};
+
+$("btnImportar").onclick = () => {
+  const k = prompt("Pegá la clave privada (64 caracteres hex):");
+  if(!k) return;
+  try{
+    const c = agregarCuenta(k.trim());
+    if(!c) return mostrar($("outCrear"), "Esa cuenta ya estaba en la lista.", "",
+                          "Sin cambios");
+    guardar(); todo();
+    mostrar($("outCrear"), credenciales(c), "ok", "Cuenta importada");
+  }catch(e){ mostrar($("outCrear"), e.message, "err", "No se pudo importar"); }
+};
+
+// ── fondear ──
+$("btnFondear").onclick = async () => {
+  const btn = $("btnFondear"), out = $("outFondear");
+  limpiarSalidas("outCrear", "outCred");
+  const destino = $("fdDest").value;
+  if(!destino) return mostrar(out, "Elegí una cuenta.", "err");
+  if(!duenio) return mostrar(out, "No pude leer el dueño del contrato. Revisá la red.",
+                             "err", "Sin conexión");
+
+  const tes = cuentas.find(c => c.address.toLowerCase() === duenio.toLowerCase());
+  if(!tes) return mostrar(out,
+    "No tenés la tesorería cargada.\n\nEs la cuenta dueña del contrato:\n  " + duenio +
+    "\n\nImportá su clave privada, o pegá el .testnet-lab.json en Configuración.", "err");
+  if(tes.address.toLowerCase() === destino.toLowerCase())
+    return mostrar(out, "La tesorería ya tiene fondos: elegí otra cuenta.", "err");
+
+  ocupado(btn, true);
+  try{
+    const bnb = aCrudo($("fdBnb").value), usdl = aCrudo($("fdUsdl").value);
+    const pasos = [];
+    if(bnb > 0n){
+      mostrar(out, "1/2 — mandando tBNB para el gas…", "trabajando");
+      const r = await enviarTx(tes.clave, { to: destino, value: bnb, gas: 21000n });
+      pasos.push(`tBNB enviado  ${EXPLORADOR}/tx/${r.hash}`);
+    }
+    if(usdl > 0n){
+      mostrar(out, "2/2 — acuñando USDL…", "trabajando");
+      const data = SEL.mint + pad32(destino) + pad32(usdl);
+      const r = await enviarTx(tes.clave, { to: cfg.token, data });
+      pasos.push(`USDL acuñado  ${EXPLORADOR}/tx/${r.hash}`);
+    }
+    mostrar(out, pasos.join("\n\n"), "ok", "Cuenta fondeada");
+    pintarTabla(true);
+  }catch(e){ mostrar(out, e.message, "err", "No se pudo fondear"); }
+  finally{ ocupado(btn, false, "Fondear"); }
+};
+
+// ── tenedores del token ──
+/**
+ * Reconstruye el saldo de TODAS las direcciones sumando los eventos `Transfer`
+ * desde que se creó el token.
+ *
+ * Un ERC-20 no tiene forma de listar a sus tenedores: el contrato solo sabe
+ * responder "¿cuánto tiene ESTA dirección?". Para saber quiénes son hay que
+ * recorrer su historia. Cada Transfer mueve saldo de `from` a `to`; los `mint`
+ * salen de la dirección cero, y por eso ahí no se resta nada.
+ */
+async function escanearTenedores(avisar){
+  const ultimo = Number(aInt(await rpcCall("eth_blockNumber")));
+  const desde = Number(cfg.bloqueInicio) || 0;
+  const saldos = new Map();
+  let eventos = 0;
+
+  for(let ini = desde; ini <= ultimo; ini += TRAMO + 1){
+    const fin = Math.min(ini + TRAMO, ultimo);
+    avisar(`Leyendo bloques ${ini.toLocaleString()} → ${fin.toLocaleString()} `
+         + `(${Math.round(((fin - desde) / (ultimo - desde)) * 100)}%)…`);
+    const logs = await rpcCall("eth_getLogs", [{
+      fromBlock: "0x" + ini.toString(16), toBlock: "0x" + fin.toString(16),
+      address: cfg.token, topics: [TOPIC_TRANSFER],
+    }], cfg.rpcLogs);
+
+    for(const l of logs){
+      // ERC-721 usa 4 topics (el tokenId va indexado); un ERC-20 usa 3.
+      if(!l.topics || l.topics.length !== 3) continue;
+      const de = "0x" + l.topics[1].slice(-40);
+      const a  = "0x" + l.topics[2].slice(-40);
+      const v = aInt(l.data);
+      if(de !== CERO) saldos.set(de, (saldos.get(de) || 0n) - v);
+      saldos.set(a, (saldos.get(a) || 0n) + v);
+      eventos++;
+    }
+  }
+  return { saldos, eventos, ultimo, desde };
+}
+
+/** Quién es cada dirección, para que la tabla se lea. */
+function etiquetar(addr){
+  const baja = addr.toLowerCase();
+  if(baja === cfg.receptora.toLowerCase())
+    return { txt: "Receptora del bridge", clase: "duenio" };
+  if(duenio && baja === duenio.toLowerCase())
+    return { txt: "Tesorería (dueña del contrato)", clase: "duenio" };
+  const mia = cuentas.find(c => c.address.toLowerCase() === baja);
+  if(mia) return { txt: mia.alias, clase: "" };
+  return { txt: "— desconocida —", clase: "sut" };
+}
+
+$("btnEscanear").onclick = async () => {
+  const btn = $("btnEscanear"), out = $("outEscaneo"), tb = $("tbodyTen");
+  ocupado(btn, true);
+  tb.innerHTML = "";
+  try{
+    const { saldos, eventos, ultimo, desde } =
+      await escanearTenedores(txt => mostrar(out, txt, "trabajando", "Escaneando"));
+
+    const filas = [...saldos.entries()]
+      .filter(([, v]) => v > 0n)
+      .sort((a, b) => (b[1] > a[1] ? 1 : b[1] < a[1] ? -1 : 0));
+    const suma = filas.reduce((s, [, v]) => s + v, 0n);
+
+    const supplyCrudo = aInt(await rpcCall(
+      "eth_call", [{ to: cfg.token, data: SEL.totalSupply }, "latest"]));
+
+    tb.innerHTML = filas.map(([addr, v]) => {
+      const e = etiquetar(addr);
+      // Con BigInt no hay decimales: se escala por 10.000 para dos cifras.
+      const pct = supplyCrudo > 0n
+        ? (Number((v * 10000n) / supplyCrudo) / 100).toFixed(2) : "0.00";
+      return `<tr>
+        <td class="mono">${addr}</td>
+        <td${e.clase ? ` class="${e.clase}"` : ""}>${e.txt}</td>
+        <td class="num">${aHumano(v, DEC, 2)}</td>
+        <td class="num">${pct} %</td></tr>`;
+    }).join("");
+
+    const cuadra = suma === supplyCrudo;
+    mostrar(out,
+      `${filas.length} direcciones con saldo · ${eventos} transferencias · `
+      + `bloques ${desde.toLocaleString()} → ${ultimo.toLocaleString()}\n\n`
+      + `Suma de saldos : ${aHumano(suma, DEC, 2)} USDL\n`
+      + `totalSupply()  : ${aHumano(supplyCrudo, DEC, 2)} USDL\n\n`
+      + (cuadra
+          ? "✓ Cuadra: el escaneo cubrió toda la historia del token."
+          : "⚠ NO cuadra. El escaneo arrancó después de la creación del token: "
+            + "bajá el bloque inicial en Configuración."),
+      cuadra ? "ok" : "err",
+      `${filas.length} tenedores`);
+  }catch(e){
+    mostrar(out, "No pude leer el historial: " + e.message
+      + "\n\nSi dice \"limit exceeded\", el nodo del historial no acepta "
+      + "eth_getLogs. Probá otro en Configuración.", "err", "Escaneo fallido");
+  }finally{ ocupado(btn, false, "Escanear la cadena"); }
+};
+
+// ── comprobante para la API ──
+/**
+ * Arma el bloque "esto es lo que le mandás a la API".
+ * El navegador no puede llamar a la API directamente (no tiene CORS habilitado),
+ * así que dejamos todo listo para copiar y pegar en Swagger o en la terminal.
+ */
+function pintarComprobante(hash, monto, hacia){
+  const url = cfg.api.replace(/\/+$/, "") + "/api/v1/crypto-deposits";
+  const key = cfg.key || "TU_API_KEY";
+  const body = JSON.stringify({ tx_hash: hash, chain_id: CHAIN_ID, value: String(monto) },
+                              null, 2);
+
+  $("cpUrl").textContent  = "POST " + url;
+  $("cpHead").textContent = `X-API-Key: ${key}\nContent-Type: application/json`;
+  $("cpBody").textContent = body;
+  $("cpCurl").textContent =
+    `curl -X POST "${url}" \\\n  -H "X-API-Key: ${key}" \\\n` +
+    `  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(
+      { tx_hash: hash, chain_id: CHAIN_ID, value: String(monto) })}'`;
+
+  const alBridge = hacia.toLowerCase() === cfg.receptora.toLowerCase();
+  const nota = $("cpNota");
+  if(!alBridge){
+    const mia = cuentas.find(c => c.address.toLowerCase() === hacia.toLowerCase());
+    nota.innerHTML = (mia
+        ? `Esto fue un <strong>reparto interno</strong> hacia "${mia.alias}", no un cobro. `
+        : "Este envío <strong>no fue a la receptora del bridge</strong>. ")
+      + "La transferencia quedó bien hecha en la cadena, pero la API solo valida lo que "
+      + "llega a <span class='mono'>" + cfg.receptora + "</span> — cualquier otra cosa la "
+      + "rechaza con <span class='mono'>TRANSFER_NOT_FOUND</span>, que es justamente lo que "
+      + "impide que alguien cobre un pago ajeno.";
+  }else if(!cfg.key){
+    nota.innerHTML = "Cargá tu API key en <strong>Configuración</strong> y el comprobante "
+      + "sale completo. El servidor pide 12 confirmaciones: esperá ~30 segundos antes de "
+      + "enviarlo, o te va a responder <span class='mono'>TX_NOT_CONFIRMED</span>.";
+  }else{
+    nota.innerHTML = "El servidor pide 12 confirmaciones: esperá ~30 segundos. Si respondés "
+      + "antes te dice <span class='mono'>TX_NOT_CONFIRMED</span>, que no es un error — "
+      + "reintentá y listo.";
+  }
+  $("comprobante").className = "comprobante show";
+}
+
+document.querySelectorAll("[data-copiar-de]").forEach(b => b.onclick = async () => {
+  await copiar($(b.dataset.copiarDe).textContent);
+  const t = b.textContent;
+  b.textContent = "copiado ✓";
+  setTimeout(() => b.textContent = t, 1100);
+});
+
+$("btnCerrarComp").onclick = () => { $("comprobante").className = "comprobante"; };
+$("btnAbrirDocs").onclick = () => {
+  window.open(cfg.api.replace(/\/+$/, "") + "/docs", "_blank");
+};
+
+// ── transferir ──
+/**
+ * Avisa EN VIVO si el destino no es la receptora del bridge. Mandar a otra
+ * dirección es el error fácil de cometer: la transferencia sale bien en la
+ * cadena, pero la API la rechaza con TRANSFER_NOT_FOUND — y ahí ya es tarde.
+ */
+function revisarDestino(){
+  const v = $("trHacia").value.trim();
+  const el = $("trAviso");
+  if(!v){ el.textContent = ""; el.className = "destino"; return; }
+  if(!/^0x[0-9a-fA-F]{40}$/.test(v)){
+    el.textContent = "✕ No parece una dirección válida (deben ser 0x y 40 caracteres).";
+    el.className = "destino ojo";
+    return;
+  }
+  if(v.toLowerCase() === cfg.receptora.toLowerCase()){
+    el.textContent = "✓ Es la receptora del bridge: la API va a poder validar este pago.";
+    el.className = "destino bien";
+    return;
+  }
+  const mia = cuentas.find(c => c.address.toLowerCase() === v.toLowerCase());
+  if(mia){
+    // Repartir entre cuentas propias es perfectamente válido: no es un cobro.
+    el.textContent = `→ Reparto interno hacia "${mia.alias}". Se hace sin problema, `
+                   + "pero no es un cobro: no lo presentes a la API.";
+    el.className = "destino info";
+  }else{
+    el.textContent = "⚠ Dirección desconocida: no es la receptora del bridge ni una "
+                   + "cuenta tuya. Revisá que sea la correcta.";
+    el.className = "destino ojo";
+  }
+}
+
+$("trHacia").oninput = revisarDestino;
+$("btnBridge").onclick = () => { $("trHacia").value = cfg.receptora; revisarDestino(); };
+$("trMias").onchange = e => {
+  if(e.target.value){ $("trHacia").value = e.target.value; revisarDestino(); }
+};
+
+$("btnEnviar").onclick = async () => {
+  const btn = $("btnEnviar"), out = $("outEnviar");
+  // Cada envío arranca de cero: el comprobante anterior ya no aplica.
+  ocultar(out);
+  $("comprobante").className = "comprobante";
+  const desde = $("trDesde").value;
+  const hacia = $("trHacia").value.trim();
+  const monto = $("trMonto").value.trim();
+
+  const c = cuentas.find(x => x.address === desde);
+  if(!c) return mostrar(out, "Elegí desde qué cuenta enviar.", "err");
+  if(!/^0x[0-9a-fA-F]{40}$/.test(hacia))
+    return mostrar(out, "La dirección de destino no es válida.", "err");
+
+  // Solo molestamos si el destino es desconocido. Repartir entre cuentas propias
+  // es una operación normal y no merece una confirmación cada vez.
+  const esMia = cuentas.some(x => x.address.toLowerCase() === hacia.toLowerCase());
+  if(hacia.toLowerCase() !== cfg.receptora.toLowerCase() && !esMia){
+    const ok = confirm(
+      "Esa dirección no es la receptora del bridge ni una cuenta tuya.\n\n" +
+      "La transferencia se va a hacer igual y los USDL van a quedar ahí.\n\n" +
+      "La receptora del bridge es:\n" + cfg.receptora + "\n\n¿Enviar igual?");
+    if(!ok) return;
+  }
+
+  ocupado(btn, true);
+  try{
+    const crudo = aCrudo(monto);
+    const [tiene, gas] = await Promise.all([saldoUsdl(c.address), saldoBnb(c.address)]);
+    if(tiene < crudo)
+      throw new Error(`${c.alias} tiene ${aHumano(tiene, DEC, 2)} USDL y querés enviar ${monto}.`);
+    if(gas === 0n)
+      throw new Error(`${c.alias} no tiene tBNB para pagar el gas. Fondeala primero.`);
+
+    mostrar(out, "Firmando y enviando a la testnet…", "trabajando");
+    const data = SEL.transfer + pad32(hacia) + pad32(crudo);
+    const { hash } = await enviarTx(c.clave, { to: cfg.token, data });
+
+    mostrar(out, `de   ${c.alias}  ${c.address}\n`
+                 + `a    ${hacia}\n\n`
+                 + `${EXPLORADOR}/tx/${hash}`, "ok", `Enviados ${monto} USDL`);
+    pintarComprobante(hash, monto, hacia);
+    pintarTabla(true);
+  }catch(e){ mostrar(out, e.message, "err", "No se pudo enviar"); }
+  finally{ ocupado(btn, false, "Enviar"); }
+};
+
+// ── tabla ──
+$("btnRefrescar").onclick = () => { refrescarRed(); pintarTabla(true); };
+$("btnVerClaves").onclick = () => {
+  mostrandoClaves = !mostrandoClaves;
+  $("btnVerClaves").textContent = mostrandoClaves ? "Ocultar claves privadas"
+                                                  : "Mostrar claves privadas";
+  pintarTabla(true);
+};
+$("btnTodasCred").onclick = () => {
+  if(!cuentas.length) return mostrar($("outCred"), "No hay cuentas todavía.", "",
+                                     "Sin cuentas");
+  mostrar($("outCred"),
+    cuentas.map(credenciales).join("\n" + "─".repeat(58) + "\n"), "ok",
+    `Credenciales de ${cuentas.length} cuentas`);
+};
+$("btnSembrar").onclick = () => {
+  const n = sembrarLaboratorio();
+  guardar(); todo();
+  mostrar($("outCred"), n
+    ? `Restauradas ${n} cuenta(s) del laboratorio.`
+    : "Ya estaban todas las del laboratorio.", "ok", "Laboratorio");
+};
+$("btnBajar").onclick = () => {
+  const blob = new Blob([JSON.stringify({ contrato: cfg.token, cuentas }, null, 2)],
+                        { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "usdl-credenciales.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+// ── configuración ──
+$("btnGuardarCfg").onclick = async () => {
+  cfg.rpc = $("cfRpc").value.trim() || POR_DEFECTO.rpc;
+  cfg.token = $("cfToken").value.trim().toLowerCase();
+  cfg.receptora = $("cfRecv").value.trim().toLowerCase();
+  cfg.rpcLogs = $("cfRpcLogs").value.trim() || POR_DEFECTO.rpcLogs;
+  cfg.bloqueInicio = Number($("cfBloque").value.trim()) || POR_DEFECTO.bloqueInicio;
+  guardar();
+  await refrescarRed();
+  pintarTabla(true);
+  mostrar($("outCfg"), "Configuración guardada.", "ok", "Guardado");
+};
+$("btnResetCfg").onclick = async () => {
+  cfg = { ...POR_DEFECTO };
+  pintarCfg(); guardar(); await refrescarRed(); pintarTabla(true);
+  mostrar($("outCfg"), "Volvimos a los valores por defecto.", "ok", "Restablecido");
+};
+function pintarCfg(){
+  $("cfRpc").value = cfg.rpc;
+  $("cfToken").value = cfg.token;
+  $("cfRecv").value = cfg.receptora;
+  $("cfRpcLogs").value = cfg.rpcLogs;
+  $("cfBloque").value = cfg.bloqueInicio;
+  $("cfApi").value = cfg.api;
+  $("cfKey").value = cfg.key;
+}
+
+$("btnGuardarApi").onclick = () => {
+  cfg.api = $("cfApi").value.trim() || POR_DEFECTO.api;
+  cfg.key = $("cfKey").value.trim();
+  guardar();
+  pintarCfg();
+  mostrar($("outApi"), cfg.key
+    ? "Guardado. El comprobante ya sale completo, con tu API key."
+    : "Guardado. Sin API key el comprobante sale con TU_API_KEY como marcador.",
+    "ok", "Guardado");
+};
+
+$("btnImportarJson").onclick = async () => {
+  const out = $("outImport");
+  try{
+    const d = JSON.parse($("txtImport").value);
+    let n = 0;
+    if(d.tesoreria && d.tesoreria.clave){
+      if(agregarCuenta(d.tesoreria.clave, "tesoreria")) n++;
+    }
+    for(const c of (d.cuentas || [])){
+      if(c && c.clave && agregarCuenta(c.clave, c.alias)) n++;
+    }
+    if(d.contrato) cfg.token = String(d.contrato).toLowerCase();
+    guardar(); pintarCfg(); await refrescarRed(); todo();
+    mostrar(out, `Importadas ${n} cuentas nuevas.` +
+      (d.contrato ? `\nContrato USDL: ${d.contrato}` : ""), "ok");
+  }catch(e){ mostrar(out, "No pude leer ese JSON: " + e.message, "err", "JSON inválido"); }
+};
+
+$("btnBorrarTodo").onclick = () => {
+  if(!confirm("¿Borrar TODAS las cuentas de este navegador? Las claves se pierden.")) return;
+  cuentas = [];
+  guardar(); todo();
+  mostrar($("outImport"), "Listo, no queda ninguna cuenta.", "", "Borradas");
+};
+
+// ── pestañas ──
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on");
+  ["cuentas","transferir","tenedores","config"].forEach(t => $("tab-"+t).hidden = (t !== b.dataset.tab));
+});
+
+// ── arranque ──
+cargar();
+pintarCfg();
+todo();
+refrescarRed().then(() => pintarTabla(true));
+</script>
+</body>
+</html>

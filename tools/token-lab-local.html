@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Lab — cadena local</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --card2:#1e222b; --line:#2a2f3a;
+    --tx:#e8ebf0; --tx2:#98a2b3; --accent:#f0b90b; --accent2:#c99a09;
+    --ok:#22c55e; --err:#ef4444; --info:#3b82f6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+       font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:880px;margin:0 auto;padding:24px 18px 64px}
+
+  header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+  h1{font-size:22px;margin:0;font-weight:650}
+  .sub{color:var(--tx2);font-size:14px;margin:2px 0 22px}
+
+  .pill{padding:5px 11px;border-radius:999px;font-size:12.5px;font-weight:600;
+        border:1px solid var(--line);background:var(--card2);color:var(--tx2)}
+  .pill.ok{color:var(--ok);border-color:#1d4a30}
+  .pill.err{color:var(--err);border-color:#4a1d1d}
+  .spacer{flex:1}
+
+  button{font:inherit;font-weight:600;border-radius:9px;cursor:pointer;
+         border:1px solid var(--line);background:var(--card2);color:var(--tx);
+         padding:9px 15px;transition:.15s}
+  button:hover:not(:disabled){border-color:#3d4453;background:#252a35}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent);color:#1a1a1a;border-color:var(--accent)}
+  button.primary:hover:not(:disabled){background:var(--accent2);border-color:var(--accent2)}
+  button.mini{padding:5px 10px;font-size:12.5px}
+
+  nav{display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:22px}
+  nav button{border:none;background:none;border-radius:0;color:var(--tx2);
+             padding:11px 16px;border-bottom:2px solid transparent}
+  nav button:hover{background:none;color:var(--tx)}
+  nav button.on{color:var(--accent);border-bottom-color:var(--accent)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:13px;
+        padding:20px;margin-bottom:16px}
+  .card h2{font-size:16px;margin:0 0 6px}
+  .card p.hint{color:var(--tx2);font-size:13.5px;margin:0 0 18px}
+
+  label{display:block;font-size:13px;color:var(--tx2);margin:14px 0 6px;font-weight:600}
+  input,select{width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--line);
+        background:#0d0f14;color:var(--tx);font:14px ui-monospace,Consolas,monospace}
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:180px}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+
+  .out{margin-top:18px;padding:14px;border-radius:10px;background:#0d0f14;
+       border:1px solid var(--line);font:13px ui-monospace,Consolas,monospace;
+       white-space:pre-wrap;word-break:break-all;display:none}
+  .out.show{display:block}
+  .out.ok{border-color:#1d4a30}
+  .out.err{border-color:#4a1d1d;color:#fca5a5}
+  .out.info{border-color:#1e3a5f}
+
+  .note{border-left:3px solid var(--info);background:#12203a33;padding:11px 14px;
+        border-radius:0 8px 8px 0;font-size:13.5px;color:#bfdbfe;margin:16px 0}
+  .warn{border-left:3px solid var(--accent);background:#3a2f1233;padding:11px 14px;
+        border-radius:0 8px 8px 0;font-size:13.5px;color:#fde68a;margin:16px 0}
+  code{background:#0d0f14;padding:2px 6px;border-radius:5px;font-size:12.5px}
+  .mono{font:13px ui-monospace,Consolas,monospace}
+
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--tx2);font-weight:600;font-size:12px;text-transform:uppercase;
+     letter-spacing:.04em}
+  td.mono{font:12.5px ui-monospace,Consolas,monospace}
+  tr.dest td{color:var(--accent)}
+  .tag{font-size:11px;padding:2px 7px;border-radius:5px;background:#2a2f3a;color:var(--tx2)}
+  .tag.dest{background:#3a2f12;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Token Lab</h1>
+  <span id="est" class="pill">sin conectar</span>
+  <span id="blk" class="pill"></span>
+  <div class="spacer"></div>
+  <button id="btnConn" class="primary">Conectar</button>
+</header>
+<p class="sub">Todo contra tu cadena local. Sin MetaMask, sin faucet, sin límites.</p>
+
+<div class="card" style="padding:14px 20px">
+  <div class="row" style="align-items:flex-end">
+    <div style="flex:1">
+      <label style="margin-top:0">¿Contra qué cadena trabajás?</label>
+      <select id="preset">
+        <option value="server">Servidor — la API de producción lee esta cadena</option>
+        <option value="local">Mi computadora — necesita ganache corriendo acá</option>
+      </select>
+    </div>
+    <div style="flex:2">
+      <label style="margin-top:0">Nodo (RPC)</label>
+      <input id="rpc" spellcheck="false">
+    </div>
+    <div style="flex:0 0 auto">
+      <button id="btnRefrescar">Refrescar</button>
+    </div>
+  </div>
+  <p class="hint" id="apiHint" style="margin:12px 0 0"></p>
+  <div id="outConn" class="out"></div>
+</div>
+
+<nav>
+  <button class="on" data-tab="crear">1 · Crear token</button>
+  <button data-tab="fondear">2 · Fondear cuentas</button>
+  <button data-tab="cuentas">3 · Cuentas y saldos</button>
+</nav>
+
+<!-- ─────────── TAB 1 ─────────── -->
+<section id="tab-crear">
+  <div class="card">
+    <h2>Desplegar el token</h2>
+    <p class="hint">Crea una moneda nueva en la cadena. <strong>Normalmente no hace falta
+      usar esta pestaña</strong>: ya hay un token desplegado y configurado en el <code>.env</code>
+      de cada lado.</p>
+    <div class="note">Solo la necesitás si reiniciaste tu ganache local —ahí la cadena se
+      borra y hay que crear todo de nuevo— o si querés una moneda distinta.</div>
+
+    <label>¿Qué cuenta crea el token?</label>
+    <select id="dFrom"></select>
+    <p class="hint" style="margin:6px 0 0">Esa cuenta <strong>recibe el 1.000.000 inicial</strong>
+      y queda como dueña, así que es la única que después puede emitir más. Con dejar la
+      <strong>(0)</strong> alcanza.</p>
+
+    <div class="warn">Si desplegás uno nuevo, el anterior deja de servir: hay que copiar la
+      dirección nueva a <code>EVM_USDC_CONTRACT</code> en el <code>.env</code> y reiniciar la API.</div>
+
+    <div class="actions">
+      <button id="btnDeploy" class="primary" disabled>Desplegar token</button>
+    </div>
+    <div id="outDeploy" class="out"></div>
+  </div>
+</section>
+
+<!-- ─────────── TAB 2 ─────────── -->
+<section id="tab-fondear" hidden>
+  <div class="card">
+    <h2>Enviar tokens</h2>
+    <p class="hint">Cada envío genera un <strong>hash</strong>: ese es el comprobante que le
+      presentás a la API para que lo verifique.</p>
+
+    <label>Contrato del token</label>
+    <input id="fContract" placeholder="0x… (se completa solo al desplegar)" spellcheck="false">
+
+    <label>Cuenta que envía</label>
+    <select id="fFrom"></select>
+
+    <div class="row">
+      <div>
+        <label>Dirección de destino</label>
+        <input id="fTo" placeholder="0x…" spellcheck="false">
+      </div>
+      <div>
+        <label>Monto</label>
+        <input id="fAmount" value="100" spellcheck="false">
+      </div>
+    </div>
+    <div class="actions" style="margin-top:10px">
+      <button id="btnFillRecv" class="mini">Usar la receptora del .env</button>
+    </div>
+
+    <div class="actions">
+      <button id="btnTransfer" class="primary" disabled>Transferir</button>
+      <button id="btnMint" disabled>Emitir nuevos (mint)</button>
+    </div>
+    <div id="outSend" class="out"></div>
+  </div>
+</section>
+
+<!-- ─────────── TAB 3 ─────────── -->
+<section id="tab-cuentas" hidden>
+  <div class="card">
+    <h2>Cuentas de la cadena</h2>
+    <p class="hint">Las 10 cuentas de prueba que trae la cadena, con lo que tiene cada una.
+      La marcada como <strong>receptora</strong> es la que hace de caja: ahí llegan los pagos
+      que después verifica la API.</p>
+    <div class="note"><strong>Las dos columnas no son lo mismo.</strong><br>
+      <strong>USDC</strong> es el dinero: cada unidad representa un dólar, y es lo que se
+      transfiere y se cobra.<br>
+      <strong>Saldo para comisiones</strong> es el combustible: cada operación en la cadena
+      cuesta una comisión mínima que se paga con esto. No es plata que cobres.</div>
+
+    <label>Contrato del token (opcional)</label>
+    <input id="cContract" placeholder="0x… para ver saldos del token" spellcheck="false">
+
+    <div class="actions">
+      <button id="btnBal" class="primary" disabled>Actualizar saldos</button>
+    </div>
+    <div id="tabla"></div>
+    <div id="outBal" class="out"></div>
+  </div>
+
+  <div class="card">
+    <h2>Consultar otra dirección</h2>
+    <p class="hint">Por ejemplo la receptora del servidor, que no es una cuenta de ganache.</p>
+    <label>Dirección</label>
+    <input id="oAddr" placeholder="0x…" spellcheck="false">
+    <div class="actions">
+      <button id="btnOtra" disabled>Consultar</button>
+    </div>
+    <div id="outOtra" class="out"></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+"use strict";
+
+// Bytecode de contracts/TestUSDC.sol compilado con solc 0.8.20.
+const BYTECODE = "0x60806040526040518060400160405280600d81526020017f546573742055534420436f696e000000000000000000000000000000000000008152505f9081620000499190620004ef565b506040518060400160405280600481526020017f555344430000000000000000000000000000000000000000000000000000000081525060019081620000909190620004ef565b50601260025f6101000a81548160ff021916908360ff160217905550348015620000b8575f80fd5b503360045f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055506200013a3360025f9054906101000a900460ff1660ff16600a6200011e919062000750565b620f42406200012e9190620007a0565b6200014060201b60201c565b620008ce565b5f73ffffffffffffffffffffffffffffffffffffffff168273ffffffffffffffffffffffffffffffffffffffff1603620001b1576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401620001a89062000848565b60405180910390fd5b8060035f828254620001c4919062000868565b925050819055508060055f8473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f82825462000219919062000868565b925050819055508173ffffffffffffffffffffffffffffffffffffffff165f73ffffffffffffffffffffffffffffffffffffffff167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef836040516200027f9190620008b3565b60405180910390a35050565b5f81519050919050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52604160045260245ffd5b7f4e487b71000000000000000000000000000000000000000000000000000000005f52602260045260245ffd5b5f60028204905060018216806200030757607f821691505b6020821081036200031d576200031c620002c2565b5b50919050565b5f819050815f5260205f209050919050565b5f6020601f8301049050919050565b5f82821b905092915050565b5f60088302620003817fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff8262000344565b6200038d868362000344565b95508019841693508086168417925050509392505050565b5f819050919050565b5f819050919050565b5f620003d7620003d1620003cb84620003a5565b620003ae565b620003a5565b9050919050565b5f819050919050565b620003f283620003b7565b6200040a6200040182620003de565b84845462000350565b825550505050565b5f90565b6200042062000412565b6200042d818484620003e7565b505050565b5b818110156200045457620004485f8262000416565b60018101905062000433565b5050565b601f821115620004a3576200046d8162000323565b620004788462000335565b8101602085101562000488578190505b620004a0620004978562000335565b83018262000432565b50505b505050565b5f82821c905092915050565b5f620004c55f1984600802620004a8565b1980831691505092915050565b5f620004df8383620004b4565b9150826002028217905092915050565b620004fa826200028b565b67ffffffffffffffff81111562000516576200051562000295565b5b620005228254620002ef565b6200052f82828562000458565b5f60209050601f83116001811462000565575f841562000550578287015190505b6200055c8582620004d2565b865550620005cb565b601f198416620005758662000323565b5f5b828110156200059e5784890151825560018201915060208501945060208101905062000577565b86831015620005be5784890151620005ba601f891682620004b4565b8355505b6001600288020188555050505b505050505050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f8160011c9050919050565b5f808291508390505b60018511156200065d57808604811115620006355762000634620005d3565b5b6001851615620006455780820291505b8081029050620006558562000600565b945062000615565b94509492505050565b5f8262000677576001905062000749565b8162000686575f905062000749565b81600181146200069f5760028114620006aa57620006e0565b600191505062000749565b60ff841115620006bf57620006be620005d3565b5b8360020a915084821115620006d957620006d8620005d3565b5b5062000749565b5060208310610133831016604e8410600b84101617156200071a5782820a905083811115620007145762000713620005d3565b5b62000749565b6200072984848460016200060c565b92509050818404811115620007435762000742620005d3565b5b81810290505b9392505050565b5f6200075c82620003a5565b91506200076983620003a5565b9250620007987fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff848462000666565b905092915050565b5f620007ac82620003a5565b9150620007b983620003a5565b9250828202620007c981620003a5565b91508282048414831517620007e357620007e2620005d3565b5b5092915050565b5f82825260208201905092915050565b7f64657374696e6f20696e76616c69646f000000000000000000000000000000005f82015250565b5f62000830601083620007ea565b91506200083d82620007fa565b602082019050919050565b5f6020820190508181035f830152620008618162000822565b9050919050565b5f6200087482620003a5565b91506200088183620003a5565b92508282019050808211156200089c576200089b620005d3565b5b92915050565b620008ad81620003a5565b82525050565b5f602082019050620008c85f830184620008a2565b92915050565b610fec80620008dc5f395ff3fe608060405234801561000f575f80fd5b50600436106100a7575f3560e01c806340c10f191161006f57806340c10f191461016557806370a08231146101815780638da5cb5b146101b157806395d89b41146101cf578063a9059cbb146101ed578063dd62ed3e1461021d576100a7565b806306fdde03146100ab578063095ea7b3146100c957806318160ddd146100f957806323b872dd14610117578063313ce56714610147575b5f80fd5b6100b361024d565b6040516100c09190610ac7565b60405180910390f35b6100e360048036038101906100de9190610b78565b6102d8565b6040516100f09190610bd0565b60405180910390f35b6101016103c5565b60405161010e9190610bf8565b60405180910390f35b610131600480360381019061012c9190610c11565b6103cb565b60405161013e9190610bd0565b60405180910390f35b61014f610552565b60405161015c9190610c7c565b60405180910390f35b61017f600480360381019061017a9190610b78565b610564565b005b61019b60048036038101906101969190610c95565b610601565b6040516101a89190610bf8565b60405180910390f35b6101b9610616565b6040516101c69190610ccf565b60405180910390f35b6101d761063b565b6040516101e49190610ac7565b60405180910390f35b61020760048036038101906102029190610b78565b6106c7565b6040516102149190610bd0565b60405180910390f35b61023760048036038101906102329190610ce8565b6106dd565b6040516102449190610bf8565b60405180910390f35b5f805461025990610d53565b80601f016020809104026020016040519081016040528092919081815260200182805461028590610d53565b80156102d05780601f106102a7576101008083540402835291602001916102d0565b820191905f5260205f20905b8154815290600101906020018083116102b357829003601f168201915b505050505081565b5f8160065f3373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8573ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20819055508273ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff167f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925846040516103b39190610bf8565b60405180910390a36001905092915050565b60035481565b5f8060065f8673ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f3373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205490508281101561048b576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161048290610dcd565b60405180910390fd5b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff811461053b5782816104be9190610e18565b60065f8773ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f3373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20819055505b6105468585856106fd565b60019150509392505050565b60025f9054906101000a900460ff1681565b60045f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff16146105f3576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016105ea90610e95565b60405180910390fd5b6105fd82826108fb565b5050565b6005602052805f5260405f205f915090505481565b60045f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b6001805461064890610d53565b80601f016020809104026020016040519081016040528092919081815260200182805461067490610d53565b80156106bf5780601f10610696576101008083540402835291602001916106bf565b820191905f5260205f20905b8154815290600101906020018083116106a257829003601f168201915b505050505081565b5f6106d33384846106fd565b6001905092915050565b6006602052815f5260405f20602052805f5260405f205f91509150505481565b5f73ffffffffffffffffffffffffffffffffffffffff168273ffffffffffffffffffffffffffffffffffffffff160361076b576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161076290610efd565b60405180910390fd5b8060055f8573ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205410156107eb576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004016107e290610f65565b60405180910390fd5b8060055f8573ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8282546108379190610e18565b925050819055508060055f8473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f82825461088a9190610f83565b925050819055508173ffffffffffffffffffffffffffffffffffffffff168373ffffffffffffffffffffffffffffffffffffffff167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef836040516108ee9190610bf8565b60405180910390a3505050565b5f73ffffffffffffffffffffffffffffffffffffffff168273ffffffffffffffffffffffffffffffffffffffff1603610969576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161096090610efd565b60405180910390fd5b8060035f82825461097a9190610f83565b925050819055508060055f8473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8282546109cd9190610f83565b925050819055508173ffffffffffffffffffffffffffffffffffffffff165f73ffffffffffffffffffffffffffffffffffffffff167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef83604051610a319190610bf8565b60405180910390a35050565b5f81519050919050565b5f82825260208201905092915050565b5f5b83811015610a74578082015181840152602081019050610a59565b5f8484015250505050565b5f601f19601f8301169050919050565b5f610a9982610a3d565b610aa38185610a47565b9350610ab3818560208601610a57565b610abc81610a7f565b840191505092915050565b5f6020820190508181035f830152610adf8184610a8f565b905092915050565b5f80fd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f610b1482610aeb565b9050919050565b610b2481610b0a565b8114610b2e575f80fd5b50565b5f81359050610b3f81610b1b565b92915050565b5f819050919050565b610b5781610b45565b8114610b61575f80fd5b50565b5f81359050610b7281610b4e565b92915050565b5f8060408385031215610b8e57610b8d610ae7565b5b5f610b9b85828601610b31565b9250506020610bac85828601610b64565b9150509250929050565b5f8115159050919050565b610bca81610bb6565b82525050565b5f602082019050610be35f830184610bc1565b92915050565b610bf281610b45565b82525050565b5f602082019050610c0b5f830184610be9565b92915050565b5f805f60608486031215610c2857610c27610ae7565b5b5f610c3586828701610b31565b9350506020610c4686828701610b31565b9250506040610c5786828701610b64565b9150509250925092565b5f60ff82169050919050565b610c7681610c61565b82525050565b5f602082019050610c8f5f830184610c6d565b92915050565b5f60208284031215610caa57610ca9610ae7565b5b5f610cb784828501610b31565b91505092915050565b610cc981610b0a565b82525050565b5f602082019050610ce25f830184610cc0565b92915050565b5f8060408385031215610cfe57610cfd610ae7565b5b5f610d0b85828601610b31565b9250506020610d1c85828601610b31565b9150509250929050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52602260045260245ffd5b5f6002820490506001821680610d6a57607f821691505b602082108103610d7d57610d7c610d26565b5b50919050565b7f616c6c6f77616e636520696e737566696369656e7465000000000000000000005f82015250565b5f610db7601683610a47565b9150610dc282610d83565b602082019050919050565b5f6020820190508181035f830152610de481610dab565b9050919050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f610e2282610b45565b9150610e2d83610b45565b9250828203905081811115610e4557610e44610deb565b5b92915050565b7f736f6c6f20656c206f776e6572000000000000000000000000000000000000005f82015250565b5f610e7f600d83610a47565b9150610e8a82610e4b565b602082019050919050565b5f6020820190508181035f830152610eac81610e73565b9050919050565b7f64657374696e6f20696e76616c69646f000000000000000000000000000000005f82015250565b5f610ee7601083610a47565b9150610ef282610eb3565b602082019050919050565b5f6020820190508181035f830152610f1481610edb565b9050919050565b7f73616c646f20696e737566696369656e746500000000000000000000000000005f82015250565b5f610f4f601283610a47565b9150610f5a82610f1b565b602082019050919050565b5f6020820190508181035f830152610f7c81610f43565b9050919050565b5f610f8d82610b45565b9150610f9883610b45565b9250828201905080821115610fb057610faf610deb565b5b9291505056fea2646970667358221220803af23f0bb4a7fc0fd773473a9b379eaef02a21eac697abd539aadf13bb5f9d64736f6c63430008140033";
+
+const SEL = {
+  transfer:  "0xa9059cbb",
+  mint:      "0x40c10f19",
+  balanceOf: "0x70a08231",
+  decimals:  "0x313ce567",
+  symbol:    "0x95d89b41",
+};
+
+// Cuenta (1) de ganache: es la receptora configurada en el .env (local y server).
+const RECEPTORA_LOCAL = "0xffcf8fdee72ac11b5c542428b35eef5769c409f0";
+
+// Las dos cadenas disponibles. Cada una la lee una API distinta.
+// `contrato` es el token que hoy tiene configurado el .env de cada lado. Se
+// carga solo en los formularios; si desplegás uno nuevo, se reemplaza.
+const PRESETS = {
+  server: {
+    rpc: "https://transactionalapi.branchtech.co/evm-9a1754192a0fdacc/",
+    api: "https://transactionalapi.branchtech.co/social-bridge/docs",
+    contrato: "0xe78a0f7e598cc8b0bb87894b0f60dd2a88d6a8ab",
+    nombre: "cadena del servidor",
+  },
+  local: {
+    rpc: "http://127.0.0.1:8546",
+    api: "http://localhost:8100/docs",
+    contrato: "0xd833215cbcc3f914bd1c9ece3ee7bf8b14f841bb",
+    nombre: "cadena de tu computadora",
+  },
+};
+const preset = () => PRESETS[$("preset").value];
+
+let cuentas = [], chainId = null, idRpc = 0;
+
+const $ = (id) => document.getElementById(id);
+const esAddr = (v) => /^0x[0-9a-fA-F]{40}$/.test((v||"").trim());
+const pad32 = (h) => h.replace(/^0x/,"").toLowerCase().padStart(64,"0");
+const aHex  = (n) => "0x" + BigInt(n).toString(16);
+
+function aUnidades(monto, dec){
+  const s = String(monto).trim().replace(",",".");
+  if(!/^\d+(\.\d+)?$/.test(s)) throw new Error("El monto no es un número válido");
+  const [ent, d=""] = s.split(".");
+  if(d.length > dec) throw new Error(`Máximo ${dec} decimales`);
+  return BigInt(ent + (d + "0".repeat(dec)).slice(0, dec));
+}
+function desdeUnidades(crudo, dec){
+  const s = BigInt(crudo).toString().padStart(dec+1,"0");
+  const ent = s.slice(0,-dec) || "0";
+  const d = s.slice(-dec).replace(/0+$/,"");
+  return d ? `${ent}.${d}` : ent;
+}
+function decodificarTexto(hex){
+  if(!hex || hex === "0x") return null;
+  const c = hex.slice(2);
+  try{
+    let datos;
+    if(c.length === 64) datos = c.replace(/(00)+$/,"");
+    else { const n = parseInt(c.slice(64,128),16); datos = c.slice(128,128+n*2); }
+    return decodeURIComponent(datos.replace(/../g,m=>"%"+m)).replace(/\0/g,"") || null;
+  }catch{ return null; }
+}
+function mostrar(el, html, tipo){ el.className = "out show " + (tipo||""); el.innerHTML = html; }
+const corto = (a) => a.slice(0,8) + "…" + a.slice(-6);
+
+// ── JSON-RPC directo contra ganache (él firma: tiene las claves) ──
+async function rpc(metodo, params){
+  const url = $("rpc").value.trim();
+  let r;
+  try{
+    r = await fetch(url, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({jsonrpc:"2.0", id:++idRpc, method:metodo, params:params||[]}),
+    });
+  }catch{
+    const ayuda = $("preset").value === "local"
+      ? "No se pudo contactar la cadena de tu computadora.\n\nLevantala con:\n" +
+        "npx ganache --chain.chainId 97 --port 8546 --wallet.deterministic"
+      : "No se pudo contactar la cadena del servidor.\nRevisá tu conexión a internet.";
+    throw new Error(ayuda);
+  }
+  if(!r.ok) throw new Error(`El nodo respondió HTTP ${r.status}`);
+  const b = await r.json();
+  if(b.error) throw new Error(b.error.message || JSON.stringify(b.error));
+  return b.result;
+}
+const i16 = (v) => (typeof v === "string" ? parseInt(v,16) : Number(v||0));
+
+async function esperarRecibo(hash, salida){
+  for(let n=0;n<80;n++){
+    const rec = await rpc("eth_getTransactionReceipt",[hash]);
+    if(rec && rec.blockNumber){
+      if(i16(rec.status) !== 1) throw new Error("La transacción revirtió en la cadena.");
+      return rec;
+    }
+    mostrar(salida, `Enviada, esperando confirmación… (${n+1})\n\n${hash}`, "info");
+    await new Promise(r => setTimeout(r, 500));
+  }
+  throw new Error("La transacción no se confirmó a tiempo.");
+}
+
+// ── conectar ──
+async function conectar(){
+  const out = $("outConn");
+  try{
+    chainId = i16(await rpc("eth_chainId"));
+    cuentas = await rpc("eth_accounts");
+    const bloque = i16(await rpc("eth_blockNumber"));
+    if(!cuentas.length) throw new Error("La cadena no expone cuentas.");
+
+    $("est").textContent = `cadena local · chain ${chainId}`;
+    $("est").className = "pill ok";
+    $("blk").textContent = `bloque ${bloque}`;
+    $("blk").className = "pill";
+
+    const saldos = await Promise.all(cuentas.map(a => rpc("eth_getBalance",[a,"latest"])));
+    ["dFrom","fFrom"].forEach(id => {
+      const s = $(id); s.innerHTML = "";
+      cuentas.forEach((a,n) => {
+        const o = document.createElement("option");
+        o.value = a;
+        o.textContent = `(${n}) ${corto(a)} — ${desdeUnidades(BigInt(saldos[n]),18)} ETH` +
+                        (a.toLowerCase() === RECEPTORA_LOCAL ? "  [receptora]" : "");
+        s.appendChild(o);
+      });
+    });
+    ["btnDeploy","btnTransfer","btnMint","btnBal","btnOtra"].forEach(x => $(x).disabled = false);
+    mostrar(out, `Conectado a la ${preset().nombre}. ` +
+                 `${cuentas.length} cuentas, bloque ${bloque}.`, "ok");
+    await verSaldos();
+    await verificarContrato();
+  }catch(e){
+    $("est").textContent = "sin conexión"; $("est").className = "pill err";
+    $("blk").textContent = "";
+    ["btnDeploy","btnTransfer","btnMint","btnBal","btnOtra"].forEach(x => $(x).disabled = true);
+    mostrar(out, e.message, "err");
+  }
+}
+
+// ── TAB 1 ──
+async function desplegar(){
+  const out = $("outDeploy");
+  $("btnDeploy").disabled = true;
+  try{
+    const from = $("dFrom").value;
+    mostrar(out, "Desplegando…", "info");
+    const gas = await rpc("eth_estimateGas",[{from, data:BYTECODE}]);
+    const hash = await rpc("eth_sendTransaction",[{from, data:BYTECODE, gas:aHex(Math.floor(i16(gas)*1.3))}]);
+    const rec = await esperarRecibo(hash, out);
+    const ct = rec.contractAddress.toLowerCase();
+
+    mostrar(out,
+      `<strong style="color:var(--ok)">Token desplegado</strong>\n\n` +
+      `contrato : ${ct}\n` +
+      `bloque   : ${i16(rec.blockNumber)}\n` +
+      `dueño    : ${from}   (recibió 1.000.000 USDC)\n\n` +
+      `<strong>Pegá esto en tu .env:</strong>\n` +
+      `EVM_RPC_URL=${$("rpc").value.trim()}\n` +
+      `EVM_CHAIN_ID=${chainId}\n` +
+      `EVM_RECEIVING_ADDRESS=${RECEPTORA_LOCAL}\n` +
+      `EVM_USDC_CONTRACT=${ct}\n` +
+      `EVM_TOKEN_DECIMALS=18\n` +
+      `EVM_TOKEN_SYMBOL=USDC\n` +
+      `EVM_MIN_CONFIRMATIONS=1`, "ok");
+
+    $("fContract").value = ct;
+    $("cContract").value = ct;
+    await verSaldos();
+  }catch(e){
+    mostrar(out, e.message, "err");
+  }finally{
+    $("btnDeploy").disabled = false;
+  }
+}
+
+// ── TAB 2 ──
+async function datosToken(ct){
+  const [d,s] = await Promise.all([
+    rpc("eth_call",[{to:ct, data:SEL.decimals},"latest"]).catch(()=>null),
+    rpc("eth_call",[{to:ct, data:SEL.symbol},  "latest"]).catch(()=>null),
+  ]);
+  if(!d || d === "0x") throw new Error("En esa dirección no hay un token en esta cadena.\n¿Reiniciaste ganache? Volvé a desplegar.");
+  return {dec:i16(d), sim:decodificarTexto(s) || "?"};
+}
+
+async function enviar(esMint){
+  const out = $("outSend");
+  $("btnTransfer").disabled = $("btnMint").disabled = true;
+  try{
+    const ct = $("fContract").value.trim();
+    const to = $("fTo").value.trim();
+    const monto = $("fAmount").value.trim();
+    const from = $("fFrom").value;
+    if(!esAddr(ct)) throw new Error("El contrato del token no es una dirección válida.");
+    if(!esAddr(to)) throw new Error("La dirección de destino no es válida.");
+
+    const {dec,sim} = await datosToken(ct);
+    const crudo = aUnidades(monto, dec);
+    if(crudo <= 0n) throw new Error("El monto debe ser mayor a 0.");
+
+    const data = (esMint ? SEL.mint : SEL.transfer) + pad32(to) + pad32(aHex(crudo));
+    mostrar(out, "Enviando…", "info");
+    const gas = await rpc("eth_estimateGas",[{from, to:ct, data}]);
+    const hash = await rpc("eth_sendTransaction",[{from, to:ct, data, gas:aHex(Math.floor(i16(gas)*1.3))}]);
+    await esperarRecibo(hash, out);
+
+    const cuerpo = JSON.stringify({tx_hash:hash, chain_id:chainId, value:monto}, null, 2);
+    const p = preset();
+    mostrar(out,
+      `<strong style="color:var(--ok)">${esMint ? "Tokens emitidos" : "Transferencia hecha"}</strong>\n\n` +
+      `${monto} ${sim}\n` +
+      `de   ${from}\n` +
+      `a    ${to}\n\n` +
+      `hash: ${hash}\n\n` +
+      `<strong>Pegalo en POST /api/v1/crypto-deposits de:</strong>\n` +
+      `<a href="${p.api}" target="_blank" rel="noreferrer">${p.api}</a>\n\n${cuerpo}`, "ok");
+    await verSaldos();
+  }catch(e){
+    mostrar(out, e.message, "err");
+  }finally{
+    $("btnTransfer").disabled = $("btnMint").disabled = false;
+  }
+}
+
+// ── TAB 3 ──
+async function verSaldos(){
+  const out = $("outBal");
+  try{
+    if(!cuentas.length) return;
+    const ct = $("cContract").value.trim();
+    let dec = 18, sim = null;
+    if(ct && esAddr(ct)){ try{ ({dec,sim} = await datosToken(ct)); }catch{ sim = null; } }
+
+    const nativos = await Promise.all(cuentas.map(a => rpc("eth_getBalance",[a,"latest"])));
+    let tokens = [];
+    if(sim){
+      tokens = await Promise.all(cuentas.map(a =>
+        rpc("eth_call",[{to:ct, data:SEL.balanceOf + pad32(a)},"latest"]).catch(()=>"0x0")));
+    }
+
+    // La moneda nativa se llama "ETH" en ganache aunque la cadena imite a BSC.
+    // Se rotula por lo que hace —pagar comisiones— para no confundirla con el
+    // dinero que se cobra, que es el token.
+    let html = `<table><tr><th>#</th><th>dirección</th>` +
+               `<th>saldo para comisiones</th>` +
+               (sim ? `<th>${sim} · el dinero</th>` : "") + `</tr>`;
+    cuentas.forEach((a,n) => {
+      const esDest = a.toLowerCase() === RECEPTORA_LOCAL;
+      html += `<tr class="${esDest?"dest":""}"><td>${n}</td>` +
+              `<td class="mono">${corto(a)} ${esDest?'<span class="tag dest">receptora</span>':""}</td>` +
+              `<td>${desdeUnidades(BigInt(nativos[n]),18)}</td>` +
+              (sim ? `<td>${desdeUnidades(tokens[n]==="0x"?0n:BigInt(tokens[n]),dec)}</td>` : "") +
+              `</tr>`;
+    });
+    $("tabla").innerHTML = html + "</table>";
+    out.className = "out";
+  }catch(e){
+    mostrar(out, e.message, "err");
+  }
+}
+
+async function consultarOtra(){
+  const out = $("outOtra");
+  try{
+    const a = $("oAddr").value.trim();
+    if(!esAddr(a)) throw new Error("La dirección no es válida.");
+    const nat = await rpc("eth_getBalance",[a,"latest"]);
+    let texto = `dirección : ${a}\nnativo    : ${desdeUnidades(BigInt(nat),18)}\n`;
+    const ct = $("cContract").value.trim();
+    if(ct && esAddr(ct)){
+      const {dec,sim} = await datosToken(ct);
+      const r = await rpc("eth_call",[{to:ct, data:SEL.balanceOf + pad32(a)},"latest"]);
+      texto += `${sim.padEnd(10)}: ${desdeUnidades(r==="0x"?0n:BigInt(r),dec)}\n`;
+    }
+    mostrar(out, texto, "ok");
+  }catch(e){
+    mostrar(out, e.message, "err");
+  }
+}
+
+// ── eventos ──
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on");
+  ["crear","fondear","cuentas"].forEach(t => $("tab-"+t).hidden = (t !== b.dataset.tab));
+});
+function aplicarPreset(){
+  const p = preset();
+  $("rpc").value = p.rpc;
+  $("fContract").value = p.contrato;
+  $("cContract").value = p.contrato;
+  $("fTo").value = RECEPTORA_LOCAL;
+  $("apiHint").innerHTML =
+    `Los comprobantes que generes acá se presentan en la API que lee esta cadena: ` +
+    `<a href="${p.api}" target="_blank" rel="noreferrer" style="color:var(--accent)">${p.api}</a>`;
+}
+
+// Al conectar se comprueba que el token cargado exista de verdad: si reiniciaste
+// ganache sin persistencia, el contrato desaparece y conviene avisar antes de
+// que el usuario intente transferir.
+async function verificarContrato(){
+  const ct = $("fContract").value.trim();
+  if(!esAddr(ct)) return;
+  try{
+    const codigo = await rpc("eth_getCode",[ct,"latest"]);
+    if(!codigo || codigo === "0x"){
+      mostrar($("outConn"),
+        `El token ${ct} ya no existe en esta cadena.\n\n` +
+        `Seguramente se reinició sin guardar el estado. Andá a la pestaña 1 y ` +
+        `desplegá uno nuevo; después actualizá EVM_USDC_CONTRACT en el .env.`, "err");
+    }
+  }catch{ /* si la cadena no responde ya se avisó al conectar */ }
+}
+$("preset").onchange = () => { aplicarPreset(); conectar(); };
+$("btnConn").onclick      = conectar;
+$("btnRefrescar").onclick = conectar;
+$("btnDeploy").onclick    = desplegar;
+$("btnTransfer").onclick  = () => enviar(false);
+$("btnMint").onclick      = () => enviar(true);
+$("btnFillRecv").onclick  = () => { $("fTo").value = RECEPTORA_LOCAL; };
+$("btnBal").onclick       = verSaldos;
+$("btnOtra").onclick      = consultarOtra;
+aplicarPreset();
+conectar();
+</script>
+</body>
+</html>

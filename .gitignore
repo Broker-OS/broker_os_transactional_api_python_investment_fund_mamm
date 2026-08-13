@@ -1,0 +1,17 @@
+.env
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.history/
+*.egg-info/
+
+# Guias del proveedor: el PDF del MAM API trae la URL del ambiente y la API key
+# EN TEXTO PLANO. La version sin credenciales vive en docs/mam-api-spec.md.
+*.pdf
+
+# Salida del test de criptografia de tools/usdl-lab.html
+tools/muestras_firmadas.json
+
+# Exportaciones de datos de produccion (llevan emails de clientes).
+exports/

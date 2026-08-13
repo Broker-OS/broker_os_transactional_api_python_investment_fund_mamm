@@ -1,0 +1,96 @@
+name: Deploy a Producción
+
+# Se dispara al hacer push a `production` (o manualmente desde la pestaña Actions).
+# Ejecuta scripts/deploy.py, que por SSH sube el código, corre las migraciones y
+# reinicia el servicio. Las credenciales vienen de los Secrets del repo:
+#   DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_PASSWORD,
+#   DEPLOY_REMOTE_DIR, DEPLOY_SERVICE_NAME, DEPLOY_HEALTH_PORT
+# (Settings -> Secrets and variables -> Actions -> New repository secret)
+#
+# El `.env` y el `venv` DEL SERVIDOR no se tocan: el deploy los preserva. Los
+# secretos de la app (MAM_API_KEY, clave de cifrado MT5, DB) viven solo allá.
+
+on:
+  push:
+    branches: [production]
+  workflow_dispatch: {}
+
+# Evita despliegues en paralelo pisándose entre sí.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Verificar reglas del contrato MAM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      # Estas reglas no necesitan base ni red: validan lo que el cliente exige
+      # antes de salir a la API del proveedor. Si fallan, no se despliega.
+      - name: Tests del cliente MAM
+        run: python tests/test_mam_client.py
+
+  deploy:
+    name: Desplegar al server
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar paramiko
+        run: pip install "paramiko==3.5.0"
+
+      - name: Armar .env con credenciales de deploy
+        env:
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+          DEPLOY_SSH_PASSWORD: ${{ secrets.DEPLOY_SSH_PASSWORD }}
+          DEPLOY_REMOTE_DIR: ${{ secrets.DEPLOY_REMOTE_DIR }}
+          DEPLOY_SERVICE_NAME: ${{ secrets.DEPLOY_SERVICE_NAME }}
+          DEPLOY_HEALTH_PORT: ${{ secrets.DEPLOY_HEALTH_PORT }}
+        run: |
+          {
+            echo "DEPLOY_SSH_HOST=${DEPLOY_SSH_HOST}"
+            echo "DEPLOY_SSH_USER=${DEPLOY_SSH_USER}"
+            echo "DEPLOY_SSH_PASSWORD=${DEPLOY_SSH_PASSWORD}"
+            echo "DEPLOY_REMOTE_DIR=${DEPLOY_REMOTE_DIR}"
+            echo "DEPLOY_SERVICE_NAME=${DEPLOY_SERVICE_NAME}"
+            echo "DEPLOY_HEALTH_PORT=${DEPLOY_HEALTH_PORT}"
+          } > .env
+
+      - name: Validar que existan los secrets
+        run: |
+          if ! grep -q '^DEPLOY_SSH_HOST=.\+' .env; then
+            echo "::error::Faltan los Secrets de deploy (DEPLOY_SSH_*). Cargalos en Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Deploy (SSH -> upload -> migrate -> restart)
+        run: python scripts/deploy.py
+
+      - name: Verificar que el servicio responda
+        run: |
+          URL="https://transactionalapi.branchtech.co/mam/health"
+          for i in 1 2 3 4 5; do
+            if curl -fsS --max-time 10 "$URL"; then echo; echo "OK"; exit 0; fi
+            echo "intento $i sin respuesta, reintentando..."; sleep 5
+          done
+          echo "::error::El servicio no respondió en $URL"
+          exit 1
