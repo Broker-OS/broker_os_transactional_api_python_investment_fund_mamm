@@ -108,6 +108,11 @@ _TAGS_METADATA = [
         "Mover capital entre la cuenta maestra y las cuentas MT5 de los clientes, con su "
         "asiento contable. El retiro **cobra primero el performance fee vencido**, que no "
         "vuelve a la tesorería sino a la cuenta PAYMENT del leader."},
+    {"name": "8. MAM · Performance fee", "description":
+        "Conciliar los fees cobrados: traer el **detalle por cliente** de cada acreditación "
+        "(el crédito que llega a la cuenta PAYMENT viene consolidado y no dice quién pagó "
+        "qué), asentarlo, y cuadrarlo contra lo que el motor acreditó. Es el insumo del "
+        "cálculo de comisiones."},
     {"name": "9. Consultas y reportes", "description":
         "Historial de movimientos, conciliación ledger↔MT5 y reportes contables."},
     {"name": "12. Depósitos on-chain (cripto)", "description":

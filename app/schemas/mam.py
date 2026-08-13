@@ -426,6 +426,89 @@ class AllocationListResponse(BaseModel):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# Performance fee
+# ══════════════════════════════════════════════════════════════════════
+
+class PerfFeeReconcileRequest(BaseModel):
+    master_login: str = Field(max_length=40, description="Login **operativo** del leader.")
+    from_at: Optional[str] = Field(
+        default=None, description="Inicio inclusivo, ISO 8601 (`2026-08-01T00:00:00Z`).")
+    to_at: Optional[str] = Field(default=None, description="Fin exclusivo, ISO 8601.")
+    run_id: Optional[int] = Field(
+        default=None, description="Conciliar una sola acreditación en vez de un período.")
+    post_ledger: bool = Field(
+        default=True,
+        description=("Poner en `false` para traer los pagos sin asentarlos: sirve para "
+                     "revisar antes de tocar el libro."))
+
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "master_login": "139682",
+        "from_at": "2026-08-01T00:00:00Z", "to_at": "2026-09-01T00:00:00Z"}})
+
+
+class PerfFeeReconcileRead(BaseModel):
+    master_login: str
+    payment_account_login: Optional[str] = None
+    fetched: int = Field(description="Pagos que devolvió el motor.")
+    new: int = Field(description="Los que no teníamos.")
+    already_known: int
+    posted_to_ledger: int
+    executed_total: Decimal
+    pending_attribution: list[str] = Field(
+        default_factory=list,
+        description=("Cuentas investor que no están en esta base: sus pagos quedaron "
+                     "**registrados pero sin asiento**. Importalas y volvé a conciliar."))
+
+
+class PerfFeeRunRead(BaseModel):
+    run_id: Optional[int] = None
+    detail_total: Decimal
+    payments: int
+
+
+class PerfFeeVerifyRead(BaseModel):
+    master_login: str
+    payment_account_login: Optional[str] = None
+    credits_found: int
+    credited_total: Decimal = Field(description="Lo que el motor acreditó, consolidado.")
+    detail_total: Decimal = Field(description="La suma de los pagos individuales que tenemos.")
+    difference: Decimal
+    matches: bool = Field(
+        description="Si es `false`, faltan pagos por traer o el motor acreditó algo sin detallar.")
+    runs: list[PerfFeeRunRead] = Field(default_factory=list)
+
+
+class PerfFeePaymentRead(BaseModel):
+    id: str
+    provider_payment_id: int
+    run_id: Optional[int] = None
+    run_status: Optional[str] = None
+    run_period_start: Optional[datetime] = None
+    run_period_end: Optional[datetime] = None
+    master_login: str
+    payment_account_login: Optional[str] = None
+    investor_mt5_login: Optional[str] = None
+    trader_id: Optional[str] = Field(
+        default=None, description="Cliente al que se atribuyó. `null` = sin asentar.")
+    amount: Decimal
+    currency: str
+    status: Optional[str] = None
+    executed_at: Optional[datetime] = None
+    ledger_tx_id: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PerfFeePaymentListResponse(BaseModel):
+    total: int
+    executed_total: Decimal
+    page: int
+    limit: int
+    pages: int
+    items: list[PerfFeePaymentRead]
+
+
+# ══════════════════════════════════════════════════════════════════════
 # Cuenta PAYMENT
 # ══════════════════════════════════════════════════════════════════════
 

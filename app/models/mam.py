@@ -504,8 +504,15 @@ class MamPerfFeePayment(Base):
     provider_payment_id: Mapped[int] = mapped_column(
         BigInteger, nullable=False, unique=True, index=True
     )
-    # Acreditacion agrupada a la que pertenece el pago.
+    # Acreditacion agrupada a la que pertenece el pago. Es la bisagra de la
+    # conciliacion: la suma de los pagos EXECUTED de un mismo run_id tiene que
+    # dar el credito consolidado que aparece en la cuenta PAYMENT.
     run_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    run_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Periodo que cristalizo esa corrida. Sin el no se puede responder "cuanto
+    # cobro este leader en marzo" sin adivinar por fecha de ejecucion.
+    run_period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    run_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     master_login: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     payment_account_login: Mapped[str | None] = mapped_column(String(40), nullable=True)
@@ -519,10 +526,20 @@ class MamPerfFeePayment(Base):
 
     amount: Mapped[Numeric] = mapped_column(Numeric(20, 8), nullable=False)
     currency: Mapped[str] = mapped_column(String(10), nullable=False, default="USD")
-    status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Solo los EXECUTED movieron dinero: los demas no se asientan.
+    status: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Asiento contable con el que se reflejo el fee en nuestro ledger.
+    # Rastros del lado MT5 / cashflow del proveedor. No se usan para deduplicar
+    # (para eso esta provider_payment_id) pero son lo unico que permite rastrear
+    # un pago concreto si alguna vez hay que discutirlo con el broker.
+    mt5_transfer_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    mt5_op_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    cashflow_unique_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
+
+    # Asiento contable con el que se reflejo el fee en nuestro ledger. Null
+    # mientras el pago esta registrado pero todavia no se asento (p.ej. porque
+    # no pudimos atribuirlo a ningun cliente).
     ledger_tx_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
 
@@ -530,4 +547,7 @@ class MamPerfFeePayment(Base):
         CheckConstraint("amount >= 0", name="ck_mam_perf_fee_payments_amount"),
         Index("ix_mam_perf_fee_payments_master_executed", "master_login", "executed_at"),
         Index("ix_mam_perf_fee_payments_run", "run_id", "investor_mt5_login"),
+        # Panel de pagos que quedaron sin asentar: los que no se pudieron
+        # atribuir a un cliente. Sin esto se pierden en la tabla.
+        Index("ix_mam_perf_fee_payments_unposted", "ledger_tx_id", "status"),
     )

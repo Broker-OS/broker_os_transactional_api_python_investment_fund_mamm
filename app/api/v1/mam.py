@@ -32,6 +32,11 @@ from app.schemas.mam import (
     MamAccountRegisterRequest,
     MamAccountUpdateRequest,
     PaymentAccountBalanceRead,
+    PerfFeePaymentListResponse,
+    PerfFeePaymentRead,
+    PerfFeeReconcileRead,
+    PerfFeeReconcileRequest,
+    PerfFeeVerifyRead,
     PaymentAccountWithdrawRead,
     PaymentAccountWithdrawRequest,
 )
@@ -39,6 +44,7 @@ from app.services.mam_account_service import MamAccountService
 from app.services.mam_allocation_service import MamAllocationService
 from app.services.mam_capital_service import MamCapitalService
 from app.services.mam_leader_service import MamLeaderService
+from app.services.mam_perf_fee_service import MamPerfFeeService
 
 router = APIRouter()
 
@@ -46,6 +52,7 @@ _CUENTAS = ["4. MAM · Cuentas"]
 _LEADERS = ["5. MAM · Estrategias (leader)"]
 _ALLOC = ["6. MAM · Suscripciones (allocations)"]
 _CAPITAL = ["7. MAM · Capital (depósito/retiro)"]
+_FEE = ["8. MAM · Performance fee"]
 
 
 async def _read(svc: MamAccountService, acc) -> dict:
@@ -602,6 +609,91 @@ async def sync_allocations(
     return APIResponse(success=True, http_status=200,
                        message=f"Sincronizadas {data['reviewed']}, cambiaron {data['changed']}",
                        data=data)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Performance fee
+# ══════════════════════════════════════════════════════════════════════
+
+@router.post("/mam/perf-fee/reconcile", response_model=APIResponse, tags=_FEE,
+             summary="Conciliar los fees cobrados por una estrategia",
+             description=(
+                 "Trae el **detalle por cliente** de los performance fees y lo asienta en "
+                 "el libro.\n\n"
+                 "Hace falta porque el crédito que llega a la cuenta PAYMENT viene "
+                 "**consolidado**: una sola fila por acreditación, sin decir cuánto aportó "
+                 "cada cliente. Sin este detalle no se puede repartir comisiones a "
+                 "sponsors ni a una red de IBs.\n\n"
+                 "Es **idempotente**: corrélo las veces que quieras sobre el mismo período. "
+                 "Los pagos se deduplican por el id del motor y el asiento se postea con una "
+                 "clave derivada de ese id.\n\n"
+                 "Si una cuenta cliente no está en esta base, su pago queda **registrado "
+                 "pero sin asiento** y aparece en `pending_attribution`: preferimos un pago "
+                 "visible sin asiento que un asiento cargado al cliente equivocado.\n\n"
+                 "Pensado también para correr periódicamente."
+             ))
+async def reconcile_perf_fee(body: PerfFeeReconcileRequest, db: AsyncSession = Depends(get_db),
+                             caller: ApiUser = Depends(require_api_key)):
+    data = await MamPerfFeeService(db).reconcile(
+        master_login=body.master_login, from_at=body.from_at, to_at=body.to_at,
+        run_id=body.run_id, post_ledger=body.post_ledger, caller=caller)
+    msg = f"Conciliados {data['fetched']} pagos, {data['posted_to_ledger']} asentados"
+    if data["pending_attribution"]:
+        msg += f", {len(data['pending_attribution'])} sin cliente atribuido"
+    return APIResponse(success=True, http_status=200, message=msg,
+                       data=PerfFeeReconcileRead(**data).model_dump(mode="json"))
+
+
+@router.get("/mam/perf-fee/verify", response_model=APIResponse, tags=_FEE,
+            summary="¿Cuadra el detalle contra lo que acreditó el motor?",
+            description=(
+                "Cruza los pagos individuales que tenemos contra el **crédito consolidado** "
+                "que el motor depositó en la cuenta PAYMENT.\n\n"
+                "La suma de los pagos de una misma acreditación tiene que dar el crédito "
+                "correspondiente. Si `matches` es `false`, o faltan pagos por traer, o el "
+                "motor acreditó algo que no está detallando — y eso conviene resolverlo "
+                "**antes** de repartir comisiones sobre un total que no cierra."
+            ))
+async def verify_perf_fee(
+    master_login: str = Query(..., description="Login operativo del leader."),
+    from_at: Optional[str] = Query(None), to_at: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db), caller: ApiUser = Depends(require_api_key),
+):
+    data = await MamPerfFeeService(db).verify_runs(
+        master_login=master_login, from_at=from_at, to_at=to_at, caller=caller)
+    msg = "El detalle cuadra con lo acreditado" if data["matches"] else \
+          f"Diferencia de {data['difference']} entre lo acreditado y el detalle"
+    return APIResponse(success=True, http_status=200, message=msg,
+                       data=PerfFeeVerifyRead(**data).model_dump(mode="json"))
+
+
+@router.get("/mam/perf-fee/payments", response_model=APIResponse, tags=_FEE,
+            summary="Pagos de performance fee conciliados",
+            description=(
+                "Los pagos ya traídos, desde esta base. **Este es el listado que consume el "
+                "cálculo de comisiones**: dice cuánto aportó cada cliente a cada "
+                "acreditación.\n\n"
+                "`only_unposted=true` muestra lo que hay que resolver a mano: cobrado por el "
+                "motor pero sin asiento, casi siempre porque la cuenta cliente no está "
+                "importada."
+            ))
+async def list_perf_fee_payments(
+    master_login: Optional[str] = Query(None),
+    investor_login: Optional[str] = Query(None, description="Filtrar por cuenta del cliente."),
+    run_id: Optional[int] = Query(None),
+    only_unposted: bool = Query(False, description="Solo lo cobrado y sin asentar."),
+    page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db), caller: ApiUser = Depends(require_api_key),
+):
+    rows, total, suma = await MamPerfFeeService(db).list_payments(
+        master_login=master_login, investor_login=investor_login, run_id=run_id,
+        only_unposted=only_unposted, page=page, limit=limit)
+    payload = PerfFeePaymentListResponse(
+        total=total, executed_total=suma, page=page, limit=limit,
+        pages=ceil(total / limit) if (total and limit) else 0,
+        items=[PerfFeePaymentRead.model_validate(p) for p in rows])
+    return APIResponse(success=True, http_status=200, message="Pagos obtenidos correctamente",
+                       data=payload.model_dump(mode="json"))
 
 
 @router.get("/mam/leaders/{account_login}/payment-account", response_model=APIResponse,

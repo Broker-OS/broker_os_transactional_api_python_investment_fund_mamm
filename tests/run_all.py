@@ -27,6 +27,7 @@ SIN_BD = [
     "test_mam_client.py",
 ]
 CON_BD = [
+    "test_db_perf_fee.py",
     "test_db_crypto_deposits.py",
 ]
 
