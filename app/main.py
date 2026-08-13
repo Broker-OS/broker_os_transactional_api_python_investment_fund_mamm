@@ -100,6 +100,10 @@ _TAGS_METADATA = [
         "Convertir una cuenta en estrategia seguible: fee, mínimo de suscripción, "
         "visibilidad y propagación. Incluye el saldo y el retiro de la **cuenta PAYMENT** "
         "donde se acumulan los performance fees del leader."},
+    {"name": "6. MAM · Suscripciones (allocations)", "description":
+        "Conectar un cliente con una estrategia: validar elegibilidad, suscribir, "
+        "ajustar el modo de asignación, pausar y dar de baja. La baja aplica la política "
+        "configurada y cobra el performance fee pendiente."},
     {"name": "9. Consultas y reportes", "description":
         "Historial de movimientos, conciliación ledger↔MT5 y reportes contables."},
     {"name": "12. Depósitos on-chain (cripto)", "description":

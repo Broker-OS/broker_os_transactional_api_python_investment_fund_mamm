@@ -246,6 +246,139 @@ class LeaderProfileListResponse(BaseModel):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# Allocations (suscripciones)
+# ══════════════════════════════════════════════════════════════════════
+
+AllocationMode = Literal["FIXED", "SCALED", "EQUITY", "EQUITY_ROUND_DOWN", "BALANCE"]
+AllocationStatus = Literal["PAUSED", "ACTIVE", "STOPPING", "CANCELLED", "ERROR"]
+UnsubscribePolicy = Literal["KEEP_OPEN", "CLOSE_ON_UNSUBSCRIBE"]
+
+
+class EligibilityRequest(BaseModel):
+    leader_login: str = Field(max_length=40)
+    follower_login: str = Field(max_length=40)
+
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "leader_login": "139682", "follower_login": "146502"}})
+
+
+class EligibilityRead(BaseModel):
+    eligible: bool
+    leader_login: Optional[str] = None
+    follower_login: Optional[str] = None
+    follower_balance: Optional[Decimal] = Field(
+        default=None,
+        description="Balance MT5 del cliente. `null` si el mínimo es 0 y no hizo falta consultarlo.")
+    min_deposit: Optional[Decimal] = None
+    max_active_leaders: Optional[int] = Field(
+        default=None, description="Cupo que autoriza el plan del cliente.")
+    live_allocations: Optional[int] = Field(
+        default=None, description="Suscripciones vivas que ya tiene (ACTIVE, PAUSED o STOPPING).")
+    quota_available: Optional[bool] = None
+    quota_reason: Optional[str] = None
+
+
+class AllocationCreateRequest(BaseModel):
+    leader_login: str = Field(max_length=40, description="Cuenta que ORIGINA las operaciones.")
+    follower_login: str = Field(max_length=40, description="Cuenta que las RECIBE.")
+    allocation_mode: AllocationMode = Field(
+        default="EQUITY",
+        description=("Cómo se calcula el volumen que abre el cliente. `EQUITY` copia la "
+                     "proporción entre equities; `BALANCE`, entre balances; `SCALED` "
+                     "multiplica el lote del leader; `FIXED` usa un lote fijo."))
+    mode_parameter: Optional[Decimal] = Field(
+        default=None, gt=0,
+        description=("**Obligatorio en `FIXED`** (lotes fijos) **y `SCALED`** (multiplicador). "
+                     "En `EQUITY`, `EQUITY_ROUND_DOWN` y `BALANCE` es un multiplicador "
+                     "opcional: omitirlo equivale a 1. Siempre mayor que 0."))
+    equity_stop: Optional[Decimal] = Field(
+        default=None, ge=0,
+        description=("Equity mínimo del cliente. Si cae hasta ahí, la suscripción se detiene "
+                     "y sus operaciones copiadas se cierran. Omitir lo desactiva."))
+    unsubscribe_policy: UnsubscribePolicy = Field(
+        default="CLOSE_ON_UNSUBSCRIBE",
+        description=("Qué pasa con las posiciones abiertas al darse de baja. "
+                     "`CLOSE_ON_UNSUBSCRIBE` las cierra; `KEEP_OPEN` las deja abiertas en "
+                     "MT5 fuera de la gestión del motor."))
+    performance_fee_rate: Optional[Decimal] = Field(
+        default=None, ge=0, le=1,
+        description="Entre 0 y 1. Si se omite, hereda la tasa de la estrategia.")
+    performance_fee_enabled: bool = True
+    activate: bool = Field(
+        default=True,
+        description=("Si es `true` la suscripción queda operando. Si es `false` queda en "
+                     "`PAUSED` para activarla después."))
+    max_active_leaders: Optional[int] = Field(
+        default=None, ge=0,
+        description=("Override del cupo del plan **solo para esta llamada**. Normalmente no "
+                     "se envía: se resuelve desde el cliente."))
+
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "leader_login": "139682", "follower_login": "146502",
+        "allocation_mode": "EQUITY", "mode_parameter": 1,
+        "equity_stop": 1000, "unsubscribe_policy": "CLOSE_ON_UNSUBSCRIBE",
+        "performance_fee_enabled": True, "activate": True,
+    }})
+
+
+class AllocationUpdateRequest(BaseModel):
+    """Enviar solo lo que se quiere cambiar.
+
+    Para dar de baja **no** se usa esto: hay que ir a `/unsubscribe`, que evalúa
+    las posiciones abiertas y cobra el fee pendiente.
+    """
+
+    allocation_mode: Optional[AllocationMode] = None
+    mode_parameter: Optional[Decimal] = Field(default=None, gt=0)
+    equity_stop: Optional[Decimal] = Field(default=None, ge=0)
+    unsubscribe_policy: Optional[UnsubscribePolicy] = None
+    performance_fee_rate: Optional[Decimal] = Field(default=None, ge=0, le=1)
+    performance_fee_enabled: Optional[bool] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "allocation_mode": "SCALED", "mode_parameter": 0.5, "equity_stop": 800}})
+
+
+class AllocationStatusRequest(BaseModel):
+    status: Literal["ACTIVE", "PAUSED"] = Field(
+        description="Pausar o reactivar. No sirve para dar de baja.")
+
+    model_config = ConfigDict(json_schema_extra={"example": {"status": "PAUSED"}})
+
+
+class AllocationRead(BaseModel):
+    id: str
+    allocation_id: Optional[int] = None
+    leader_login: str
+    follower_login: str
+    status: str
+    allocation_mode: str
+    mode_parameter: Optional[Decimal] = None
+    equity_stop: Optional[Decimal] = None
+    unsubscribe_policy: str
+    performance_fee_rate: Optional[Decimal] = None
+    performance_fee_enabled: bool
+    max_active_leaders_requested: Optional[int] = None
+    terminated_reason: Optional[str] = None
+    terminated_by: Optional[str] = None
+    performance_fee_charged: Optional[Decimal] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AllocationListResponse(BaseModel):
+    total: int
+    page: int
+    limit: int
+    pages: int
+    items: list[AllocationRead]
+
+
+# ══════════════════════════════════════════════════════════════════════
 # Cuenta PAYMENT
 # ══════════════════════════════════════════════════════════════════════
 

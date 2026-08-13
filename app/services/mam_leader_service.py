@@ -132,6 +132,55 @@ class MamLeaderService:
                     acc.mt5_login, payment_login or "sin PAYMENT")
         return profile
 
+    async def import_profile(self, *, account_login: str, caller=None) -> MamLeaderProfile:
+        """Trae un perfil de estrategia que YA existe en el motor.
+
+        Tercer caso del mismo problema que las cuentas y las allocations: el
+        ambiente del proveedor tiene perfiles creados antes de la integracion.
+        Y este es el que mas duele si falta — sin el perfil local, cualquier
+        intento de suscribir a esa estrategia se rechaza con "no tiene perfil",
+        que es exactamente lo contrario de lo que pasa en el motor.
+
+        El perfil se busca por el login OPERATIVO de la cuenta, no por leader_id.
+        """
+        acc = await self.accounts.get_account(account_login, caller=caller)
+        ya = await self.repo.get_profile_by_account_id(acc.id)
+        if ya is not None:
+            return ya
+
+        page = await self._client.list_leaders(account_login=acc.mt5_login)
+        items, _, _ = self._client.iterate_pages(page)
+        data = next((i for i in items
+                     if str(i.get("account_login")) == acc.mt5_login), None)
+        if data is None:
+            raise LeaderProfileNotFoundError(
+                message="El motor no tiene perfil de estrategia para esa cuenta",
+                detail=f"account_login={acc.mt5_login}")
+
+        profile = MamLeaderProfile(
+            account_id=acc.id,
+            leader_id=_as_int(data.get("id")),
+            account_login=acc.mt5_login,
+            payment_account_login=(str(data["payment_account_login"])
+                                   if data.get("payment_account_login") else None),
+            strategy_name=data.get("strategy_name"),
+            description=data.get("description"),
+            leaderboard_visibility=bool(data.get("leaderboard_visibility", False)),
+            restrict_simultaneous_connections=bool(
+                data.get("restrict_simultaneous_connections", False)),
+            min_deposit=_dec(data.get("min_deposit"), Decimal("0")),
+            performance_fee_rate=_dec(data.get("performance_fee_rate"), Decimal("0")),
+            performance_fee_period=data.get("performance_fee_period") or "MONTHLY",
+            propagation_mode=data.get("propagation_mode") or "ORIGINAL_ONLY",
+            status=data.get("status") or LEADER_ACTIVE,
+        )
+        self.repo.add(profile)
+        await self.db.commit()
+        await self.db.refresh(profile)
+        logger.info("MAM: perfil de leader %s importado para %s",
+                    profile.leader_id, acc.mt5_login)
+        return profile
+
     async def get_profile(self, account_login: str, *, caller=None) -> MamLeaderProfile:
         # Pasa por la cuenta para heredar la validacion de propiedad.
         acc = await self.accounts.get_account(account_login, caller=caller)

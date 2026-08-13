@@ -10,6 +10,13 @@ from app.db.database import get_db
 from app.models.api_user import ApiUser
 from app.schemas.common import APIResponse
 from app.schemas.mam import (
+    AllocationCreateRequest,
+    AllocationListResponse,
+    AllocationRead,
+    AllocationStatusRequest,
+    AllocationUpdateRequest,
+    EligibilityRead,
+    EligibilityRequest,
     LeaderProfileCreateRequest,
     LeaderProfileListResponse,
     LeaderProfileRead,
@@ -27,12 +34,14 @@ from app.schemas.mam import (
     PaymentAccountWithdrawRequest,
 )
 from app.services.mam_account_service import MamAccountService
+from app.services.mam_allocation_service import MamAllocationService
 from app.services.mam_leader_service import MamLeaderService
 
 router = APIRouter()
 
 _CUENTAS = ["4. MAM · Cuentas"]
 _LEADERS = ["5. MAM · Estrategias (leader)"]
+_ALLOC = ["6. MAM · Suscripciones (allocations)"]
 
 
 async def _read(svc: MamAccountService, acc) -> dict:
@@ -246,6 +255,26 @@ async def create_leader_profile(body: LeaderProfileCreateRequest,
                        data=LeaderProfileRead.model_validate(profile).model_dump(mode="json"))
 
 
+@router.post("/mam/leaders/import", response_model=APIResponse, tags=_LEADERS,
+             status_code=status.HTTP_201_CREATED,
+             summary="Importar una estrategia que ya existe en el motor",
+             description=(
+                 "Trae un perfil de estrategia que **el motor ya tiene**, buscándolo por el "
+                 "login operativo de la cuenta.\n\n"
+                 "Es el import que más duele si falta: sin el perfil local, cualquier intento "
+                 "de suscribir un cliente a esa estrategia se rechaza con *«no tiene perfil»* "
+                 "— exactamente lo contrario de lo que pasa en el motor."
+             ))
+async def import_leader_profile(
+    account_login: str = Query(..., description="Login operativo de la cuenta leader."),
+    db: AsyncSession = Depends(get_db), caller: ApiUser = Depends(require_api_key),
+):
+    profile = await MamLeaderService(db).import_profile(
+        account_login=account_login, caller=caller)
+    return APIResponse(success=True, http_status=201, message="Estrategia importada correctamente",
+                       data=LeaderProfileRead.model_validate(profile).model_dump(mode="json"))
+
+
 @router.get("/mam/leaders", response_model=APIResponse, tags=_LEADERS,
             summary="Listar estrategias")
 async def list_leader_profiles(
@@ -296,6 +325,193 @@ async def update_leader_profile(account_login: str, body: LeaderProfileUpdateReq
         propagation_mode=body.propagation_mode, status=body.status)
     return APIResponse(success=True, http_status=200, message="Estrategia actualizada correctamente",
                        data=LeaderProfileRead.model_validate(profile).model_dump(mode="json"))
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Allocations (suscripciones)
+# ══════════════════════════════════════════════════════════════════════
+
+@router.post("/mam/allocations/eligibility", response_model=APIResponse, tags=_ALLOC,
+             summary="¿Puede este cliente suscribirse a esta estrategia?",
+             description=(
+                 "Valida **sin crear nada**. Sirve para pedirle fondos al cliente antes de "
+                 "intentar la suscripción, en vez de mostrarle un error después.\n\n"
+                 "Comprueba dos cosas de distinta procedencia: el **mínimo de la estrategia**, "
+                 "que valida el motor contra el balance real en MT5 (equity, crédito y free "
+                 "margin **no** cuentan), y el **cupo del plan del cliente**, que resuelve "
+                 "este servicio porque el motor no lo conoce.\n\n"
+                 "No reemplaza la validación del alta: al crear, el motor vuelve a consultar "
+                 "el balance para no trabajar sobre un dato viejo."
+             ))
+async def check_eligibility(body: EligibilityRequest, db: AsyncSession = Depends(get_db),
+                            caller: ApiUser = Depends(require_api_key)):
+    data = await MamAllocationService(db).check_eligibility(
+        leader_login=body.leader_login, follower_login=body.follower_login, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Elegibilidad evaluada",
+                       data=EligibilityRead(**{
+                           k: v for k, v in data.items() if k in EligibilityRead.model_fields
+                       }).model_dump(mode="json"))
+
+
+@router.post("/mam/allocations", response_model=APIResponse, tags=_ALLOC,
+             status_code=status.HTTP_201_CREATED,
+             summary="Suscribir un cliente a una estrategia",
+             description=(
+                 "Conecta dos cuentas: la que **origina** operaciones y la que las **recibe**.\n\n"
+                 "Se crea en `PAUSED` y se activa con un PATCH aparte, aunque desde afuera sea "
+                 "una sola llamada (`activate: true`). El orden importa: si activáramos en el "
+                 "mismo paso y fallara el guardado, quedaría una relación copiando operaciones "
+                 "reales que nuestra base no conoce.\n\n"
+                 "**`mode_parameter`** cambia de significado según el modo — es obligatorio en "
+                 "`FIXED` y `SCALED`, opcional en los demás (equivale a 1). Siempre mayor que 0.\n\n"
+                 "El **cupo de estrategias simultáneas** sale del plan del cliente. El motor no "
+                 "lo almacena: lo valida contra el valor que le mandamos en esta solicitud.\n\n"
+                 "Si el balance no llega al mínimo de la estrategia, responde `MIN_DEPOSIT_NOT_MET`: "
+                 "hay que depositar antes de suscribir."
+             ))
+async def create_allocation(body: AllocationCreateRequest, db: AsyncSession = Depends(get_db),
+                            caller: ApiUser = Depends(require_api_key)):
+    alloc = await MamAllocationService(db).create_allocation(
+        leader_login=body.leader_login, follower_login=body.follower_login,
+        allocation_mode=body.allocation_mode, mode_parameter=body.mode_parameter,
+        equity_stop=body.equity_stop, unsubscribe_policy=body.unsubscribe_policy,
+        performance_fee_rate=body.performance_fee_rate,
+        performance_fee_enabled=body.performance_fee_enabled,
+        activate=body.activate, max_active_leaders=body.max_active_leaders, caller=caller)
+    return APIResponse(success=True, http_status=201, message="Suscripción creada correctamente",
+                       data=AllocationRead.model_validate(alloc).model_dump(mode="json"))
+
+
+@router.post("/mam/allocations/import", response_model=APIResponse, tags=_ALLOC,
+             status_code=status.HTTP_201_CREATED,
+             summary="Importar una suscripción que ya existe en el motor",
+             description=(
+                 "Trae a este servicio una relación que **el motor ya tiene**, identificada "
+                 "por su `allocation_id`.\n\n"
+                 "Importa más de lo que parece: una suscripción preexistente que no conocemos "
+                 "consume el cupo del plan del cliente y participa en la detección de ciclos "
+                 "del motor. Sin importarla, nuestras validaciones trabajan sobre un mapa "
+                 "incompleto y rechazan suscripciones por razones que no podemos explicar.\n\n"
+                 "Las dos cuentas tienen que estar importadas antes."
+             ))
+async def import_allocation(allocation_id: int = Query(..., description="ID de la suscripción en el motor."),
+                            db: AsyncSession = Depends(get_db),
+                            caller: ApiUser = Depends(require_api_key)):
+    alloc = await MamAllocationService(db).import_allocation(
+        allocation_id=allocation_id, caller=caller)
+    return APIResponse(success=True, http_status=201, message="Suscripción importada correctamente",
+                       data=AllocationRead.model_validate(alloc).model_dump(mode="json"))
+
+
+@router.get("/mam/allocations", response_model=APIResponse, tags=_ALLOC,
+            summary="Listar suscripciones",
+            description=("Un **USER** ve las suscripciones donde su cliente está en cualquiera "
+                         "de las dos puntas: siguiendo una estrategia, o siendo la estrategia "
+                         "que otros siguen."))
+async def list_allocations(
+    leader_login: Optional[str] = Query(None),
+    follower_login: Optional[str] = Query(None),
+    allocation_status: Optional[str] = Query(None, alias="status"),
+    page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db), caller: ApiUser = Depends(require_api_key),
+):
+    rows, total = await MamAllocationService(db).list_allocations(
+        caller=caller, leader_login=leader_login, follower_login=follower_login,
+        status=allocation_status, page=page, limit=limit)
+    payload = AllocationListResponse(
+        total=total, page=page, limit=limit,
+        pages=ceil(total / limit) if (total and limit) else 0,
+        items=[AllocationRead.model_validate(a) for a in rows])
+    return APIResponse(success=True, http_status=200, message="Suscripciones obtenidas correctamente",
+                       data=payload.model_dump(mode="json"))
+
+
+@router.get("/mam/allocations/{allocation_id}", response_model=APIResponse, tags=_ALLOC,
+            summary="Detalle de una suscripción")
+async def get_allocation(allocation_id: int, db: AsyncSession = Depends(get_db),
+                         caller: ApiUser = Depends(require_api_key)):
+    alloc = await MamAllocationService(db).get_allocation(allocation_id, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Suscripción obtenida correctamente",
+                       data=AllocationRead.model_validate(alloc).model_dump(mode="json"))
+
+
+@router.patch("/mam/allocations/{allocation_id}", response_model=APIResponse, tags=_ALLOC,
+              summary="Cambiar la configuración de una suscripción",
+              description=(
+                  "Modo de asignación, multiplicador, equity stop, política de baja y fee.\n\n"
+                  "⚠️ **No sirve para dar de baja.** Cancelar por acá no evalúa las posiciones "
+                  "abiertas ni cobra el fee pendiente — para eso está `/unsubscribe`.\n\n"
+                  "Cada cambio de fee queda auditado con quién lo hizo y el `note`."
+              ))
+async def update_allocation(allocation_id: int, body: AllocationUpdateRequest,
+                            db: AsyncSession = Depends(get_db),
+                            caller: ApiUser = Depends(require_api_key)):
+    alloc = await MamAllocationService(db).update_allocation(
+        allocation_id=allocation_id, note=body.note, caller=caller,
+        allocation_mode=body.allocation_mode, mode_parameter=body.mode_parameter,
+        equity_stop=body.equity_stop, unsubscribe_policy=body.unsubscribe_policy,
+        performance_fee_rate=body.performance_fee_rate,
+        performance_fee_enabled=body.performance_fee_enabled)
+    return APIResponse(success=True, http_status=200, message="Suscripción actualizada correctamente",
+                       data=AllocationRead.model_validate(alloc).model_dump(mode="json"))
+
+
+@router.post("/mam/allocations/{allocation_id}/status", response_model=APIResponse, tags=_ALLOC,
+             summary="Pausar o reactivar una suscripción",
+             description=(
+                 "`PAUSED` deja la relación registrada pero deja de replicar operaciones. "
+                 "**No pauses una suscripción con posiciones abiertas** sin definir antes cómo "
+                 "se van a administrar: quedan vivas en MT5 sin que nadie las siga.\n\n"
+                 "Al volver a un estado vivo el motor revalida cuentas, duplicados y "
+                 "restricciones de conexión simultánea."
+             ))
+async def set_allocation_status(allocation_id: int, body: AllocationStatusRequest,
+                                db: AsyncSession = Depends(get_db),
+                                caller: ApiUser = Depends(require_api_key)):
+    alloc = await MamAllocationService(db).set_status(
+        allocation_id=allocation_id, status=body.status, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Estado actualizado correctamente",
+                       data=AllocationRead.model_validate(alloc).model_dump(mode="json"))
+
+
+@router.post("/mam/allocations/{allocation_id}/unsubscribe", response_model=APIResponse,
+             tags=_ALLOC, summary="Dar de baja una suscripción",
+             description=(
+                 "**Esta es la forma correcta de terminar una relación**, no un cambio de "
+                 "estado: aplica la política configurada y cobra el performance fee pendiente.\n\n"
+                 "Con `CLOSE_ON_UNSUBSCRIBE` la baja **no es instantánea**: genera los cierres "
+                 "y queda en `STOPPING` hasta que terminan; recién ahí cobra el fee y pasa a "
+                 "`CANCELLED`. **No repitas la llamada** — usá `/sync` para seguir el estado.\n\n"
+                 "Con `KEEP_OPEN` cobra el fee, desconecta las posiciones copiadas y las deja "
+                 "abiertas en MT5 fuera de la gestión del motor."
+             ))
+async def unsubscribe_allocation(allocation_id: int, db: AsyncSession = Depends(get_db),
+                                 caller: ApiUser = Depends(require_api_key)):
+    alloc = await MamAllocationService(db).unsubscribe(
+        allocation_id=allocation_id, caller=caller)
+    msg = ("Suscripción dada de baja correctamente" if alloc.status == "CANCELLED"
+           else "Baja en proceso: cerrando posiciones. Consultá el estado con /sync")
+    return APIResponse(success=True, http_status=200, message=msg,
+                       data=AllocationRead.model_validate(alloc).model_dump(mode="json"))
+
+
+@router.post("/mam/allocations/sync", response_model=APIResponse, tags=_ALLOC,
+             summary="Sincronizar las bajas en curso (cron)",
+             description=(
+                 "Refresca contra el motor las suscripciones que quedaron en `STOPPING`.\n\n"
+                 "Hace falta porque una baja con `CLOSE_ON_UNSUBSCRIBE` no es instantánea: sin "
+                 "esto nuestra base diría `STOPPING` para siempre aunque el motor ya la haya "
+                 "dado por terminada. Pensado para correr periódicamente."
+             ))
+async def sync_allocations(
+    allocation_id: Optional[int] = Query(None, description="Sincronizar solo esta."),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db), caller: ApiUser = Depends(require_api_key),
+):
+    data = await MamAllocationService(db).sync(allocation_id=allocation_id, limit=limit)
+    return APIResponse(success=True, http_status=200,
+                       message=f"Sincronizadas {data['reviewed']}, cambiaron {data['changed']}",
+                       data=data)
 
 
 @router.get("/mam/leaders/{account_login}/payment-account", response_model=APIResponse,
