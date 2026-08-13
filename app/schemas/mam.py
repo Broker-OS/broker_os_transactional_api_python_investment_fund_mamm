@@ -430,7 +430,10 @@ class AllocationListResponse(BaseModel):
 # ══════════════════════════════════════════════════════════════════════
 
 class PerfFeeReconcileRequest(BaseModel):
-    master_login: str = Field(max_length=40, description="Login **operativo** del leader.")
+    master_login: Optional[str] = Field(
+        default=None, max_length=40,
+        description=("Login **operativo** del leader. Si se omite, concilia **todas** las "
+                     "estrategias registradas — que es como lo usa el proceso periódico."))
     from_at: Optional[str] = Field(
         default=None, description="Inicio inclusivo, ISO 8601 (`2026-08-01T00:00:00Z`).")
     to_at: Optional[str] = Field(default=None, description="Fin exclusivo, ISO 8601.")
@@ -444,6 +447,16 @@ class PerfFeeReconcileRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {
         "master_login": "139682",
         "from_at": "2026-08-01T00:00:00Z", "to_at": "2026-09-01T00:00:00Z"}})
+
+
+class PerfFeeReconcileAllRead(BaseModel):
+    leaders: int
+    reconciled: int
+    failed: int
+    fetched: int
+    posted_to_ledger: int
+    errors: list[str] = Field(default_factory=list)
+    pending_attribution: list[str] = Field(default_factory=list)
 
 
 class PerfFeeReconcileRead(BaseModel):
@@ -540,6 +553,135 @@ class WebhookEventListResponse(BaseModel):
     limit: int
     pages: int
     items: list[WebhookEventRead]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Baja de cuentas
+# ══════════════════════════════════════════════════════════════════════
+
+DeletionScope = Literal["MASTER_ACCOUNT_ONLY", "MASTER_AND_INVESTORS"]
+PositionsPolicy = Literal["CLOSE_TRANSMITTED", "KEEP_OPEN"]
+
+
+class DeletionRequest(BaseModel):
+    mt5_login: str = Field(max_length=40)
+    scope: Optional[DeletionScope] = Field(
+        default=None,
+        description=("Solo aplica si la cuenta es una estrategia. `MASTER_AND_INVESTORS` "
+                     "arrastra a sus seguidores directos, que hay que listar en "
+                     "`investor_logins`."))
+    investor_logins: Optional[list[str]] = None
+    transmitted_positions_policy: PositionsPolicy = Field(
+        default="CLOSE_TRANSMITTED",
+        description=("`CLOSE_TRANSMITTED` cierra las posiciones copiadas antes de purgar. "
+                     "`KEEP_OPEN` las deja vivas en MT5 bajo gestión manual y fuera del "
+                     "seguimiento del motor."))
+    idempotency_key: Optional[str] = Field(default=None, max_length=120)
+    force: bool = Field(
+        default=False,
+        description=("Continuar aunque el análisis de impacto reporte conflictos. **No** "
+                     "saltea el análisis: la foto queda guardada igual."))
+
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "mt5_login": "146502", "transmitted_positions_policy": "CLOSE_TRANSMITTED"}})
+
+
+class DeletionOperationRead(BaseModel):
+    id: str
+    operation_id: Optional[str] = None
+    target_kind: str = Field(description="`MASTER` si la cuenta es una estrategia.")
+    target_login: str
+    scope: Optional[str] = None
+    transmitted_positions_policy: str
+    status: str = Field(
+        description=("`PENDING` → `WAITING_CLOSE` → `PURGING` → `COMPLETED`. "
+                     "`PARTIAL` se reintenta; `FAILED` no."))
+    error_message: Optional[str] = None
+    requested_by: Optional[str] = None
+    idempotency_key: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DeletionOperationListResponse(BaseModel):
+    total: int
+    page: int
+    limit: int
+    pages: int
+    items: list[DeletionOperationRead]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Rendimiento
+# ══════════════════════════════════════════════════════════════════════
+
+class PerformanceQueryRequest(BaseModel):
+    account_logins: list[str] = Field(min_length=1, max_length=500)
+
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "account_logins": ["139682", "146502"]}})
+
+
+class TraderAccountOverview(BaseModel):
+    mt5_login: str
+    name: Optional[str] = None
+    can_be_leader: bool
+    can_be_follower: bool
+    status: str
+    balance: Optional[Decimal] = None
+    equity: Optional[Decimal] = None
+    free_margin: Optional[Decimal] = None
+    metrics_error: Optional[str] = Field(
+        default=None, description="Si MT5 no pudo responder por esta cuenta.")
+
+
+class TraderSubscriptionOverview(BaseModel):
+    allocation_id: Optional[int] = None
+    leader_login: str
+    follower_login: str
+    status: str
+    allocation_mode: str
+    performance_fee_rate: Optional[Decimal] = None
+
+
+class TraderOverviewRead(BaseModel):
+    external_reference: str
+    email: str
+    max_active_leaders: Optional[int] = None
+    accounts: list[TraderAccountOverview] = Field(default_factory=list)
+    live_subscriptions: list[TraderSubscriptionOverview] = Field(default_factory=list)
+    capital_placed: Decimal = Field(description="Capital neto colocado, según el libro contable.")
+    equity_total: Decimal = Field(description="Cuánto vale hoy, sumando sus cuentas en MT5.")
+    performance_fees_paid: Decimal
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Operación
+# ══════════════════════════════════════════════════════════════════════
+
+class PendingItemRead(BaseModel):
+    key: str
+    count: int
+    needs_human: bool = Field(description="Si no avanza solo con los procesos periódicos.")
+    what: str
+    why: str
+
+
+class PendingRead(BaseModel):
+    needs_attention: int = Field(description="Suma de lo que no se resuelve solo.")
+    total_pending: int
+    items: list[PendingItemRead]
+
+
+class ReadinessRead(BaseModel):
+    ready: bool
+    capabilities: dict[str, bool] = Field(
+        description="Qué puede hacer el servicio hoy, según lo que esté configurado.")
+    critical: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    needs_attention: int
 
 
 # ══════════════════════════════════════════════════════════════════════

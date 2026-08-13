@@ -1,0 +1,708 @@
+{
+  "surface": {
+    "GET /api/v1/mam/accounts": {
+      "params": [
+        "account_logins",
+        "can_be_follower",
+        "can_be_leader",
+        "cursor",
+        "exclude_leaders",
+        "limit",
+        "order",
+        "page",
+        "search",
+        "search_by",
+        "sort_by",
+        "status",
+        "user_id"
+      ],
+      "response": [
+        "has_more",
+        "items",
+        "items[].account_mode",
+        "items[].can_be_follower",
+        "items[].can_be_leader",
+        "items[].created_at",
+        "items[].currency",
+        "items[].id",
+        "items[].metatrader_account_product_id",
+        "items[].mt5_login",
+        "items[].name",
+        "items[].status",
+        "items[].updated_at",
+        "items[].user_id",
+        "next_cursor",
+        "page",
+        "total"
+      ]
+    },
+    "GET /api/v1/mam/accounts/{account_login}": {
+      "params": [
+        "account_login"
+      ],
+      "response": [
+        "account_mode",
+        "can_be_follower",
+        "can_be_leader",
+        "created_at",
+        "currency",
+        "id",
+        "investor_password",
+        "metatrader_account_product_id",
+        "mt5_login",
+        "name",
+        "password",
+        "status",
+        "updated_at",
+        "user_id"
+      ]
+    },
+    "GET /api/v1/mam/accounts/{account_login}/balance-transactions": {
+      "params": [
+        "account_login",
+        "cursor",
+        "limit",
+        "status",
+        "transaction_type"
+      ],
+      "response": [
+        "has_more",
+        "items",
+        "items[].account_id",
+        "items[].amount",
+        "items[].comment",
+        "items[].created_at",
+        "items[].currency",
+        "items[].error_message",
+        "items[].executed_at",
+        "items[].id",
+        "items[].idempotency_key",
+        "items[].mt5_deal_id",
+        "items[].mt5_login",
+        "items[].reference_id",
+        "items[].reference_type",
+        "items[].source",
+        "items[].status",
+        "items[].transaction_type",
+        "items[].triggered_by",
+        "items[].updated_at",
+        "next_cursor"
+      ]
+    },
+    "GET /api/v1/mam/accounts/{account_login}/metrics": {
+      "params": [
+        "account_login"
+      ],
+      "response": [
+        "balance",
+        "credit",
+        "equity",
+        "free_margin",
+        "margin",
+        "mt5_login",
+        "withdrawable"
+      ]
+    },
+    "GET /api/v1/mam/allocations": {
+      "params": [
+        "cursor",
+        "follower_login",
+        "leader_login",
+        "limit",
+        "search",
+        "search_target",
+        "status"
+      ],
+      "response": [
+        "has_more",
+        "items",
+        "items[].allocation_mode",
+        "items[].copy_by_leader_price",
+        "items[].copy_existing_positions",
+        "items[].copy_sl",
+        "items[].copy_tp",
+        "items[].created_at",
+        "items[].ended_at",
+        "items[].equity_limit",
+        "items[].equity_stop",
+        "items[].follower_account_id",
+        "items[].follower_login",
+        "items[].follower_name",
+        "items[].follower_user_id",
+        "items[].id",
+        "items[].leader_account_id",
+        "items[].leader_login",
+        "items[].leader_name",
+        "items[].leader_propagation_mode",
+        "items[].leader_user_id",
+        "items[].mode_parameter",
+        "items[].performance_fee_enabled",
+        "items[].performance_fee_rate",
+        "items[].started_at",
+        "items[].status",
+        "items[].unsubscribe_policy",
+        "items[].updated_at",
+        "next_cursor"
+      ]
+    },
+    "GET /api/v1/mam/allocations/{allocation_id}": {
+      "params": [
+        "allocation_id"
+      ],
+      "response": [
+        "allocation_mode",
+        "copy_by_leader_price",
+        "copy_existing_positions",
+        "copy_sl",
+        "copy_tp",
+        "created_at",
+        "ended_at",
+        "equity_limit",
+        "equity_stop",
+        "follower_account_id",
+        "follower_login",
+        "follower_name",
+        "follower_user_id",
+        "id",
+        "leader_account_id",
+        "leader_login",
+        "leader_name",
+        "leader_propagation_mode",
+        "leader_user_id",
+        "mode_parameter",
+        "performance_fee_enabled",
+        "performance_fee_rate",
+        "started_at",
+        "status",
+        "unsubscribe_policy",
+        "updated_at"
+      ]
+    },
+    "GET /api/v1/mam/leaders": {
+      "params": [
+        "account_login",
+        "account_logins",
+        "created_before",
+        "cursor",
+        "limit",
+        "order",
+        "page",
+        "search",
+        "search_by",
+        "sort_by",
+        "status",
+        "visible_only"
+      ],
+      "response": [
+        "has_more",
+        "items",
+        "items[].account_id",
+        "items[].account_login",
+        "items[].account_name",
+        "items[].active_allocations_count",
+        "items[].created_at",
+        "items[].description",
+        "items[].id",
+        "items[].leaderboard_visibility",
+        "items[].metatrader_account_product_id",
+        "items[].min_deposit",
+        "items[].min_free_margin",
+        "items[].payment_account_login",
+        "items[].performance_fee_period",
+        "items[].performance_fee_rate",
+        "items[].propagation_mode",
+        "items[].restrict_simultaneous_connections",
+        "items[].status",
+        "items[].strategy_name",
+        "items[].updated_at",
+        "next_cursor",
+        "page",
+        "total"
+      ]
+    },
+    "GET /api/v1/mam/leaders/{leader_id}": {
+      "params": [
+        "leader_id"
+      ],
+      "response": [
+        "account_id",
+        "account_login",
+        "account_name",
+        "active_allocations_count",
+        "created_at",
+        "description",
+        "id",
+        "leaderboard_visibility",
+        "metatrader_account_product_id",
+        "min_deposit",
+        "min_free_margin",
+        "payment_account_login",
+        "performance_fee_period",
+        "performance_fee_rate",
+        "propagation_mode",
+        "restrict_simultaneous_connections",
+        "status",
+        "strategy_name",
+        "updated_at"
+      ]
+    },
+    "GET /api/v1/mam/leaders/{master_login}/payment-account/balance": {
+      "params": [
+        "master_login"
+      ],
+      "response": [
+        "balance",
+        "credit",
+        "currency",
+        "equity",
+        "free_margin",
+        "master_login",
+        "payment_account_login",
+        "withdrawable"
+      ]
+    },
+    "GET /api/v1/perf-fee/master/{master_login}/investor-payments": {
+      "params": [
+        "cursor",
+        "from_at",
+        "limit",
+        "master_login",
+        "run_id",
+        "to_at"
+      ],
+      "response": [
+        "has_more",
+        "items",
+        "items[].amount",
+        "items[].cashflow_id",
+        "items[].cashflow_unique_key",
+        "items[].created_at",
+        "items[].currency",
+        "items[].executed_at",
+        "items[].id",
+        "items[].investor_id",
+        "items[].investor_mt5_login",
+        "items[].mt5_op_id",
+        "items[].mt5_transfer_id",
+        "items[].run_id",
+        "items[].run_period_end",
+        "items[].run_period_start",
+        "items[].run_status",
+        "items[].status",
+        "master_login",
+        "next_cursor",
+        "payment_account_login"
+      ]
+    },
+    "GET /api/v1/perf-fee/transactions": {
+      "params": [
+        "cursor",
+        "from_at",
+        "limit",
+        "master_login",
+        "to_at"
+      ],
+      "response": [
+        "has_more",
+        "items",
+        "items[].amount",
+        "items[].created_at",
+        "items[].currency",
+        "items[].id",
+        "items[].investor_mt5_login",
+        "items[].kind",
+        "items[].master_payment_login",
+        "items[].mt5_op_id",
+        "items[].mt5_ts",
+        "next_cursor",
+        "payment_account_login"
+      ]
+    },
+    "PATCH /api/v1/mam/accounts/{account_login}": {
+      "params": [
+        "account_login"
+      ],
+      "request": [
+        "account_mode",
+        "can_be_follower",
+        "can_be_leader",
+        "currency",
+        "metatrader_account_product_id",
+        "name",
+        "status"
+      ],
+      "response": [
+        "account_mode",
+        "can_be_follower",
+        "can_be_leader",
+        "created_at",
+        "currency",
+        "id",
+        "metatrader_account_product_id",
+        "mt5_login",
+        "name",
+        "status",
+        "updated_at",
+        "user_id"
+      ]
+    },
+    "PATCH /api/v1/mam/allocations/{allocation_id}": {
+      "params": [
+        "allocation_id"
+      ],
+      "request": [
+        "allocation_mode",
+        "copy_by_leader_price",
+        "copy_existing_positions",
+        "copy_sl",
+        "copy_tp",
+        "equity_limit",
+        "equity_stop",
+        "mode_parameter",
+        "performance_fee_enabled",
+        "performance_fee_rate",
+        "status",
+        "unsubscribe_policy"
+      ],
+      "response": [
+        "allocation_mode",
+        "copy_by_leader_price",
+        "copy_existing_positions",
+        "copy_sl",
+        "copy_tp",
+        "created_at",
+        "ended_at",
+        "equity_limit",
+        "equity_stop",
+        "follower_account_id",
+        "follower_login",
+        "follower_name",
+        "follower_user_id",
+        "id",
+        "leader_account_id",
+        "leader_login",
+        "leader_name",
+        "leader_propagation_mode",
+        "leader_user_id",
+        "mode_parameter",
+        "performance_fee_enabled",
+        "performance_fee_rate",
+        "started_at",
+        "status",
+        "unsubscribe_policy",
+        "updated_at"
+      ]
+    },
+    "PATCH /api/v1/mam/leaders/{leader_id}": {
+      "params": [
+        "leader_id"
+      ],
+      "request": [
+        "description",
+        "leaderboard_visibility",
+        "min_deposit",
+        "min_free_margin",
+        "performance_fee_period",
+        "performance_fee_rate",
+        "propagation_mode",
+        "restrict_simultaneous_connections",
+        "status",
+        "strategy_name"
+      ],
+      "response": [
+        "account_id",
+        "account_login",
+        "account_name",
+        "active_allocations_count",
+        "created_at",
+        "description",
+        "id",
+        "leaderboard_visibility",
+        "metatrader_account_product_id",
+        "min_deposit",
+        "min_free_margin",
+        "payment_account_login",
+        "performance_fee_period",
+        "performance_fee_rate",
+        "propagation_mode",
+        "restrict_simultaneous_connections",
+        "status",
+        "strategy_name",
+        "updated_at"
+      ]
+    },
+    "POST /api/v1/mam/accounts/add": {
+      "params": [],
+      "request": [
+        "account_mode",
+        "can_be_follower",
+        "can_be_leader",
+        "currency",
+        "metatrader_account_product_id",
+        "mt5_login",
+        "name",
+        "status",
+        "user_id"
+      ],
+      "response": [
+        "account_mode",
+        "can_be_follower",
+        "can_be_leader",
+        "created_at",
+        "currency",
+        "id",
+        "metatrader_account_product_id",
+        "mt5_login",
+        "name",
+        "status",
+        "updated_at",
+        "user_id"
+      ]
+    },
+    "POST /api/v1/mam/accounts/create": {
+      "params": [],
+      "request": [
+        "account_mode",
+        "can_be_follower",
+        "can_be_leader",
+        "currency",
+        "first_name",
+        "last_name",
+        "leverage",
+        "metatrader_account_product_id",
+        "name",
+        "platform_group",
+        "rights",
+        "status",
+        "user_id",
+        "username"
+      ],
+      "response": [
+        "account_mode",
+        "can_be_follower",
+        "can_be_leader",
+        "created_at",
+        "currency",
+        "id",
+        "investor_password",
+        "leverage",
+        "metatrader_account_product_id",
+        "mt5_login",
+        "name",
+        "password",
+        "platform_group",
+        "rights",
+        "status",
+        "updated_at",
+        "user_id"
+      ]
+    },
+    "POST /api/v1/mam/accounts/{account_login}/deposit": {
+      "params": [
+        "account_login"
+      ],
+      "request": [
+        "amount",
+        "idempotency_key"
+      ],
+      "response": [
+        "account_login",
+        "amount",
+        "comment",
+        "mt5_deal_id",
+        "transaction_id"
+      ]
+    },
+    "POST /api/v1/mam/accounts/{account_login}/withdraw": {
+      "params": [
+        "account_login"
+      ],
+      "request": [
+        "amount",
+        "idempotency_key"
+      ],
+      "response": [
+        "account_login",
+        "balance_after",
+        "balance_before",
+        "free_margin_before",
+        "performance_fee_charged",
+        "performance_fee_due",
+        "performance_fees",
+        "performance_fees[].allocation_id",
+        "performance_fees[].fee_amount",
+        "performance_fees[].follower_debit_mt5_deal_id",
+        "performance_fees[].leader_credit_mt5_deal_id",
+        "performance_fees[].leader_login",
+        "performance_fees[].settlement_id",
+        "requested_amount",
+        "transaction_id",
+        "withdrawable_before",
+        "withdrawal_comment",
+        "withdrawal_mt5_deal_id",
+        "withdrawal_was_reused"
+      ]
+    },
+    "POST /api/v1/mam/allocations": {
+      "params": [],
+      "request": [
+        "allocation_mode",
+        "copy_by_leader_price",
+        "copy_existing_positions",
+        "copy_sl",
+        "copy_tp",
+        "equity_limit",
+        "equity_stop",
+        "follower_login",
+        "leader_login",
+        "max_active_leaders_per_follower",
+        "mode_parameter",
+        "performance_fee_enabled",
+        "performance_fee_rate",
+        "status",
+        "unsubscribe_policy"
+      ],
+      "response": [
+        "allocation_mode",
+        "copy_by_leader_price",
+        "copy_existing_positions",
+        "copy_sl",
+        "copy_tp",
+        "created_at",
+        "ended_at",
+        "equity_limit",
+        "equity_stop",
+        "follower_account_id",
+        "follower_login",
+        "follower_name",
+        "follower_user_id",
+        "id",
+        "leader_account_id",
+        "leader_login",
+        "leader_name",
+        "leader_propagation_mode",
+        "leader_user_id",
+        "mode_parameter",
+        "performance_fee_enabled",
+        "performance_fee_rate",
+        "started_at",
+        "status",
+        "unsubscribe_policy",
+        "updated_at"
+      ]
+    },
+    "POST /api/v1/mam/allocations/subscription-eligibility": {
+      "params": [],
+      "request": [
+        "follower_login",
+        "leader_login"
+      ],
+      "response": [
+        "eligible",
+        "follower_balance",
+        "follower_login",
+        "leader_login",
+        "min_deposit"
+      ]
+    },
+    "POST /api/v1/mam/allocations/{allocation_id}/unsubscribe": {
+      "params": [
+        "allocation_id"
+      ],
+      "response": [
+        "allocation",
+        "close_commands_created",
+        "detached_positions",
+        "performance_fee_charged",
+        "performance_fee_due",
+        "performance_fees",
+        "performance_fees[].allocation_id",
+        "performance_fees[].fee_amount",
+        "performance_fees[].follower_debit_mt5_deal_id",
+        "performance_fees[].leader_credit_mt5_deal_id",
+        "performance_fees[].leader_login",
+        "performance_fees[].settlement_id",
+        "policy",
+        "retries_cancelled",
+        "status"
+      ]
+    },
+    "POST /api/v1/mam/leaders": {
+      "params": [],
+      "request": [
+        "account_login",
+        "description",
+        "leaderboard_visibility",
+        "min_deposit",
+        "min_free_margin",
+        "payment_account_login",
+        "performance_fee_period",
+        "performance_fee_rate",
+        "propagation_mode",
+        "restrict_simultaneous_connections",
+        "status",
+        "strategy_name"
+      ],
+      "response": [
+        "account_id",
+        "account_login",
+        "account_name",
+        "active_allocations_count",
+        "created_at",
+        "description",
+        "id",
+        "leaderboard_visibility",
+        "metatrader_account_product_id",
+        "min_deposit",
+        "min_free_margin",
+        "payment_account_login",
+        "performance_fee_period",
+        "performance_fee_rate",
+        "propagation_mode",
+        "restrict_simultaneous_connections",
+        "status",
+        "strategy_name",
+        "updated_at"
+      ]
+    },
+    "POST /api/v1/mam/leaders/{master_login}/payment-account/withdraw": {
+      "params": [
+        "master_login"
+      ],
+      "request": [
+        "amount",
+        "idempotency_key"
+      ],
+      "response": [
+        "balance_after",
+        "balance_before",
+        "comment",
+        "currency",
+        "master_login",
+        "mt5_deal_id",
+        "payment_account_login",
+        "requested_amount",
+        "result",
+        "transaction_id",
+        "withdrawable_before"
+      ]
+    },
+    "POST /api/v1/mam/webhooks": {
+      "params": [],
+      "request": [
+        "name",
+        "url"
+      ],
+      "response": [
+        "created_at",
+        "id",
+        "name",
+        "signature_algorithm",
+        "signing_secret",
+        "status",
+        "url"
+      ]
+    }
+  },
+  "version": "0.1.0"
+}

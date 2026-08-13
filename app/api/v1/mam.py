@@ -17,6 +17,9 @@ from app.schemas.mam import (
     AllocationUpdateRequest,
     CapitalMovementRead,
     CapitalOperationRequest,
+    DeletionOperationListResponse,
+    DeletionOperationRead,
+    DeletionRequest,
     EligibilityRead,
     EligibilityRequest,
     LeaderProfileCreateRequest,
@@ -34,9 +37,14 @@ from app.schemas.mam import (
     PaymentAccountBalanceRead,
     PerfFeePaymentListResponse,
     PerfFeePaymentRead,
+    PerfFeeReconcileAllRead,
     PerfFeeReconcileRead,
     PerfFeeReconcileRequest,
     PerfFeeVerifyRead,
+    PendingRead,
+    PerformanceQueryRequest,
+    ReadinessRead,
+    TraderOverviewRead,
     WebhookEventListResponse,
     WebhookEventRead,
     PaymentAccountWithdrawRead,
@@ -44,7 +52,10 @@ from app.schemas.mam import (
 )
 from app.services.mam_account_service import MamAccountService
 from app.services.mam_allocation_service import MamAllocationService
+from app.services.mam_analytics_service import MamAnalyticsService
 from app.services.mam_capital_service import MamCapitalService
+from app.services.mam_deletion_service import MamDeletionService
+from app.services.mam_ops_service import MamOpsService
 from app.services.mam_leader_service import MamLeaderService
 from app.services.mam_perf_fee_service import MamPerfFeeService
 from app.services.mam_webhook_service import MamWebhookService
@@ -56,6 +67,9 @@ _LEADERS = ["5. MAM · Estrategias (leader)"]
 _ALLOC = ["6. MAM · Suscripciones (allocations)"]
 _CAPITAL = ["7. MAM · Capital (depósito/retiro)"]
 _FEE = ["8. MAM · Performance fee"]
+_BAJAS = ["9. MAM · Baja de cuentas"]
+_ANALYTICS = ["10. MAM · Rendimiento"]
+_OPS = ["11. Operación (incidentes)"]
 
 
 async def _read(svc: MamAccountService, acc) -> dict:
@@ -637,7 +651,18 @@ async def sync_allocations(
              ))
 async def reconcile_perf_fee(body: PerfFeeReconcileRequest, db: AsyncSession = Depends(get_db),
                              caller: ApiUser = Depends(require_api_key)):
-    data = await MamPerfFeeService(db).reconcile(
+    svc = MamPerfFeeService(db)
+    if not body.master_login:
+        # Modo cron: todas las estrategias. Una que falle no frena a las demas.
+        data = await svc.reconcile_all(from_at=body.from_at, to_at=body.to_at, caller=caller)
+        msg = (f"{data['reconciled']}/{data['leaders']} estrategias conciliadas, "
+               f"{data['posted_to_ledger']} asientos")
+        if data["failed"]:
+            msg += f", {data['failed']} con error"
+        return APIResponse(success=True, http_status=200, message=msg,
+                           data=PerfFeeReconcileAllRead(**data).model_dump(mode="json"))
+
+    data = await svc.reconcile(
         master_login=body.master_login, from_at=body.from_at, to_at=body.to_at,
         run_id=body.run_id, post_ledger=body.post_ledger, caller=caller)
     msg = f"Conciliados {data['fetched']} pagos, {data['posted_to_ledger']} asentados"
@@ -741,6 +766,222 @@ async def retry_webhook_events(
     return APIResponse(success=True, http_status=200,
                        message=f"Revisados {data['reviewed']}, aplicados {data['processed']}",
                        data=data)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Baja de cuentas
+# ══════════════════════════════════════════════════════════════════════
+
+@router.get("/mam/accounts/{mt5_login}/deletion-impact", response_model=APIResponse,
+            tags=_BAJAS, summary="¿Qué pasa si doy de baja esta cuenta?",
+            description=(
+                "Analiza **sin modificar nada**: qué suscripciones y qué posiciones "
+                "copiadas se verían afectadas.\n\n"
+                "La cuenta decide sola por qué flujo va — si tiene perfil de estrategia, "
+                "la baja puede arrastrar a sus seguidores.\n\n"
+                "Consultá esto **antes** de dar de baja: crear la operación a ciegas puede "
+                "cerrar posiciones de un cliente que no esperaba perderlas."
+            ))
+async def deletion_impact(mt5_login: str, db: AsyncSession = Depends(get_db),
+                          caller: ApiUser = Depends(require_api_key)):
+    data = await MamDeletionService(db).impact(mt5_login=mt5_login, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Impacto analizado", data=data)
+
+
+@router.post("/mam/account-deletions", response_model=APIResponse, tags=_BAJAS,
+             status_code=status.HTTP_202_ACCEPTED,
+             summary="Dar de baja una cuenta del motor",
+             description=(
+                 "**No es un borrado inmediato.** Crea una operación asincrónica que puede "
+                 "tener que cerrar posiciones antes de purgar:\n\n"
+                 "`PENDING` → `WAITING_CLOSE` → `PURGING` → `COMPLETED`\n\n"
+                 "El análisis de impacto se ejecuta **siempre** y queda guardado como "
+                 "evidencia. Si reporta conflictos, se corta — salvo que mandes `force`.\n\n"
+                 "⚠️ Esto elimina la cuenta del **servicio MAM**, no el usuario del servidor "
+                 "MT5: eso es un procedimiento administrativo del broker.\n\n"
+                 "La cuenta se marca de baja de nuestro lado **recién cuando el motor "
+                 "confirma** `COMPLETED`."
+             ))
+async def request_deletion(body: DeletionRequest, db: AsyncSession = Depends(get_db),
+                           caller: ApiUser = Depends(require_api_key)):
+    op = await MamDeletionService(db).request(
+        mt5_login=body.mt5_login, scope=body.scope, investor_logins=body.investor_logins,
+        transmitted_positions_policy=body.transmitted_positions_policy,
+        idempotency_key=body.idempotency_key, force=body.force, caller=caller)
+    return APIResponse(success=True, http_status=202, message="Baja en curso",
+                       data=DeletionOperationRead.model_validate(op).model_dump(mode="json"))
+
+
+@router.get("/mam/account-deletions", response_model=APIResponse, tags=_BAJAS,
+            summary="Listar bajas")
+async def list_deletions(
+    deletion_status: Optional[str] = Query(None, alias="status"),
+    page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db), caller: ApiUser = Depends(require_api_key),
+):
+    rows, total = await MamDeletionService(db).list_operations(
+        status=deletion_status, page=page, limit=limit)
+    payload = DeletionOperationListResponse(
+        total=total, page=page, limit=limit,
+        pages=ceil(total / limit) if (total and limit) else 0,
+        items=[DeletionOperationRead.model_validate(o) for o in rows])
+    return APIResponse(success=True, http_status=200, message="Bajas obtenidas correctamente",
+                       data=payload.model_dump(mode="json"))
+
+
+@router.get("/mam/account-deletions/{operation_id}", response_model=APIResponse, tags=_BAJAS,
+            summary="Estado de una baja",
+            description="Consulta el estado en el motor y lo refleja acá. **No archives la "
+                        "cuenta en otros sistemas hasta ver `COMPLETED`.**")
+async def get_deletion(operation_id: str, db: AsyncSession = Depends(get_db),
+                       caller: ApiUser = Depends(require_api_key)):
+    op = await MamDeletionService(db).get(operation_id, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Baja obtenida correctamente",
+                       data=DeletionOperationRead.model_validate(op).model_dump(mode="json"))
+
+
+@router.post("/mam/account-deletions/{operation_id}/retry", response_model=APIResponse,
+             tags=_BAJAS, summary="Reintentar una baja que quedó a medias",
+             description=(
+                 "Solo para las que quedaron en `PARTIAL`: uno o más cierres de posiciones "
+                 "no terminaron. **Corregí la causa primero** — reintentar sin eso repite el "
+                 "mismo fallo.\n\n"
+                 "Sobre `FAILED` o `COMPLETED` no hay nada que reintentar."
+             ))
+async def retry_deletion(operation_id: str, db: AsyncSession = Depends(get_db),
+                         caller: ApiUser = Depends(require_api_key)):
+    op = await MamDeletionService(db).retry(operation_id, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Reintento enviado",
+                       data=DeletionOperationRead.model_validate(op).model_dump(mode="json"))
+
+
+@router.post("/mam/account-deletions/sync", response_model=APIResponse, tags=_BAJAS,
+             summary="Sincronizar las bajas en curso (cron)",
+             description="Refresca contra el motor las que no llegaron a un estado final.")
+async def sync_deletions(limit: int = Query(50, ge=1, le=200),
+                         db: AsyncSession = Depends(get_db),
+                         caller: ApiUser = Depends(require_api_key)):
+    data = await MamDeletionService(db).sync(limit=limit)
+    return APIResponse(success=True, http_status=200,
+                       message=f"Revisadas {data['reviewed']}, cambiaron {data['changed']}",
+                       data=data)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Rendimiento
+# ══════════════════════════════════════════════════════════════════════
+
+@router.get("/mam/traders/{external_reference}/overview", response_model=APIResponse,
+            tags=_ANALYTICS, summary="Todo lo del cliente en una respuesta",
+            description=(
+                "Junta lo que el motor **no puede** armar solo: él no sabe que varias "
+                "cuentas MT5 son de la misma persona — esa relación vive únicamente acá.\n\n"
+                "Cruza tres fuentes: qué cuentas tiene y a qué estrategias sigue (nuestra "
+                "base), cuánto capital le colocamos (el libro contable), y cuánto vale hoy "
+                "cada cuenta (MT5 en vivo).\n\n"
+                "Si MT5 no puede responder por una cuenta, esa fila trae `metrics_error` y "
+                "el resto del resumen igual se devuelve."
+            ))
+async def trader_overview(external_reference: str, db: AsyncSession = Depends(get_db),
+                          caller: ApiUser = Depends(require_api_key)):
+    data = await MamAnalyticsService(db).trader_overview(
+        external_reference=external_reference, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Resumen obtenido correctamente",
+                       data=TraderOverviewRead(**data).model_dump(mode="json"))
+
+
+@router.post("/mam/analytics/leaders/performance", response_model=APIResponse, tags=_ANALYTICS,
+             summary="Rendimiento de una o varias estrategias",
+             description="Cada login se valida contra esta base antes de consultar al motor.")
+async def leaders_performance(body: PerformanceQueryRequest, db: AsyncSession = Depends(get_db),
+                              caller: ApiUser = Depends(require_api_key)):
+    data = await MamAnalyticsService(db).leader_performance(
+        account_logins=body.account_logins, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Rendimiento obtenido", data=data)
+
+
+@router.post("/mam/analytics/followers/performance", response_model=APIResponse, tags=_ANALYTICS,
+             summary="Rendimiento de una o varias cuentas de clientes")
+async def followers_performance(body: PerformanceQueryRequest, db: AsyncSession = Depends(get_db),
+                                caller: ApiUser = Depends(require_api_key)):
+    data = await MamAnalyticsService(db).follower_performance(
+        account_logins=body.account_logins, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Rendimiento obtenido", data=data)
+
+
+@router.get("/mam/analytics/leaders/{mt5_login}/trades", response_model=APIResponse,
+            tags=_ANALYTICS, summary="Operaciones originadas por una estrategia")
+async def leader_trades(mt5_login: str, limit: Optional[int] = Query(None, ge=1, le=200),
+                        cursor: Optional[int] = Query(None),
+                        db: AsyncSession = Depends(get_db),
+                        caller: ApiUser = Depends(require_api_key)):
+    data = await MamAnalyticsService(db).leader_trades(
+        mt5_login=mt5_login, limit=limit, cursor=cursor, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Historial obtenido", data=data)
+
+
+@router.get("/mam/analytics/followers/{mt5_login}/trades", response_model=APIResponse,
+            tags=_ANALYTICS, summary="Operaciones copiadas en la cuenta de un cliente")
+async def follower_trades(mt5_login: str, limit: Optional[int] = Query(None, ge=1, le=200),
+                          cursor: Optional[int] = Query(None),
+                          db: AsyncSession = Depends(get_db),
+                          caller: ApiUser = Depends(require_api_key)):
+    data = await MamAnalyticsService(db).follower_trades(
+        mt5_login=mt5_login, limit=limit, cursor=cursor, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Historial obtenido", data=data)
+
+
+@router.get("/mam/analytics/leaders/{mt5_login}/subscribers", response_model=APIResponse,
+            tags=_ANALYTICS, summary="Clientes conectados a una estrategia",
+            description="Ojo: este listado del motor pagina con `limit`/`offset`, no con cursor.")
+async def leader_subscribers(mt5_login: str,
+                             subscriber_status: Optional[str] = Query(None, alias="status"),
+                             limit: Optional[int] = Query(None, ge=1, le=200),
+                             offset: Optional[int] = Query(None, ge=0),
+                             db: AsyncSession = Depends(get_db),
+                             caller: ApiUser = Depends(require_api_key)):
+    data = await MamAnalyticsService(db).subscribers(
+        mt5_login=mt5_login, status=subscriber_status, limit=limit, offset=offset, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Suscriptores obtenidos", data=data)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Operación
+# ══════════════════════════════════════════════════════════════════════
+
+@router.get("/mam/ops/pending", response_model=APIResponse, tags=_OPS,
+            summary="Qué quedó a medias",
+            description=(
+                "Todo lo que espera resolución, en un solo lugar, con la razón de por qué "
+                "espera.\n\n"
+                "`needs_human` distingue lo que **no** se resuelve solo con los procesos "
+                "periódicos: un movimiento con resultado incierto o una baja a medio camino "
+                "necesitan una decisión; una suscripción cerrando posiciones no."
+            ))
+async def ops_pending(db: AsyncSession = Depends(get_db),
+                      caller: ApiUser = Depends(require_api_key)):
+    data = await MamOpsService(db).pending()
+    msg = ("Nada pendiente de intervención" if data["needs_attention"] == 0
+           else f"{data['needs_attention']} ítem(s) necesitan intervención")
+    return APIResponse(success=True, http_status=200, message=msg,
+                       data=PendingRead(**data).model_dump(mode="json"))
+
+
+@router.get("/mam/ops/readiness", response_model=APIResponse, tags=_OPS,
+            summary="¿Está en condiciones de operar?",
+            description=(
+                "Distinto de `/health`, que solo dice que el proceso responde. Acá se mira "
+                "si falta configuración que **recién se nota cuando alguien intenta usar "
+                "una función**: sin grupo MT5 el servicio levanta perfecto y falla en la "
+                "primera creación de cuenta.\n\n"
+                "`capabilities` dice qué puede hacer hoy, según lo que esté configurado."
+            ))
+async def ops_readiness(db: AsyncSession = Depends(get_db),
+                        caller: ApiUser = Depends(require_api_key)):
+    data = await MamOpsService(db).readiness()
+    return APIResponse(success=True, http_status=200,
+                       message="Listo para operar" if data["ready"] else "Falta configuración",
+                       data=ReadinessRead(**data).model_dump(mode="json"))
 
 
 @router.get("/mam/leaders/{account_login}/payment-account", response_model=APIResponse,

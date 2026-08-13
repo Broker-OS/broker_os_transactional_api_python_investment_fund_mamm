@@ -42,12 +42,19 @@ suscribirse después de darse de baja.
 | Fondeo de la cuenta maestra con OTP por email | ✅ funcionando |
 | Depósitos on-chain en USDC (verificados contra la cadena) | ✅ funcionando |
 | Reportes contables y conciliación | ✅ funcionando |
-| Modelo de dominio MAM + migración inicial | ✅ funcionando |
+| Modelo de dominio MAM + migraciones | ✅ funcionando |
 | Cliente HTTP del MAM API (§11 completo de la spec) | ✅ funcionando |
-| Servicios de cuentas / perfiles / allocations | ⏳ pendiente |
-| Endpoints `/api/v1/mam/*` | ⏳ pendiente |
-| Receptor del webhook de terminación (HMAC) | ⏳ pendiente |
-| Operaciones de borrado de cuentas | ⏳ pendiente |
+| Cuentas MT5: crear, registrar, importar | ✅ funcionando |
+| Estrategias (perfiles de leader) + cuenta PAYMENT | ✅ funcionando |
+| Suscripciones: elegibilidad, alta, pausa, baja | ✅ funcionando |
+| Capital con asiento contable | ✅ funcionando |
+| Conciliación de performance fee | ✅ funcionando |
+| Webhook de terminación (HMAC) | ✅ registrado y operando |
+| Baja segura de cuentas | ✅ funcionando |
+| Rendimiento y vista consolidada por cliente | ✅ funcionando |
+| Panel de operación y readiness | ✅ funcionando |
+| Procesos periódicos (timers) | ✅ corriendo |
+| Snapshot del contrato del proveedor | ✅ congelado |
 
 La especificación funcional del proveedor está en
 [`docs/mam-api-spec.md`](docs/mam-api-spec.md) (mismo contenido que el PDF de la
@@ -131,6 +138,53 @@ Requiere estos Secrets en *Settings → Secrets and variables → Actions*:
 | `DEPLOY_REMOTE_DIR` | `/home/api/broker-os-mam` |
 | `DEPLOY_SERVICE_NAME` | `broker-os-mam` |
 | `DEPLOY_HEALTH_PORT` | `8200` |
+
+### Trabajo periódico
+
+Cuatro timers de systemd empujan lo que no termina en el mismo instante en que
+empieza:
+
+| Timer | Cada | Qué resuelve |
+|---|---|---|
+| `broker-os-mam-allocations-sync` | 10 min | Bajas que quedaron en `STOPPING` cerrando posiciones |
+| `broker-os-mam-deletions-sync` | 10 min | Bajas de cuenta en curso, hasta `COMPLETED` |
+| `broker-os-mam-webhook-retry` | 15 min | Avisos que llegaron antes que su suscripción |
+| `broker-os-mam-perf-fee-reconcile` | 2 h | Fees de todas las estrategias, cubriendo el corte semanal |
+
+```bash
+sudo systemctl list-timers 'broker-os-mam-*'
+sudo journalctl -u broker-os-mam-perf-fee-reconcile -n 50
+```
+
+Usan una **cuenta de servicio** propia (rol ADMIN, sin notificaciones — su email
+es un buzón que no existe y cada aviso rebotaría). Su clave vive en
+`/etc/broker-os-mam-cron.env`, propiedad de root con permisos `600`.
+
+Todos los endpoints que llaman son **idempotentes**: correrlos de más no rompe
+nada, la única consecuencia de un intervalo corto es más tráfico.
+
+### Contrato del proveedor
+
+El motor está en versión **0.1.0** y va a cambiar. `contracts/mam-openapi-snapshot.json`
+congela **solo la superficie que consumimos** — rutas, parámetros y campos de los
+schemas que tocamos. Un snapshot del archivo entero fallaría ante cualquier
+retoque de una descripción, y un test que grita por cosas que no importan se
+termina ignorando.
+
+```bash
+python -m scripts.snapshot_contract          # ¿cambió algo que nos rompa?
+python -m scripts.snapshot_contract --write  # aceptar el cambio
+```
+
+Solo alerta sobre lo que **desaparece** o cambia. Un campo nuevo del lado del
+proveedor no obliga a tocar nada.
+
+### Webhook de terminación
+
+Ya está registrado. El motor admite **un solo destino**, un segundo registro
+devuelve `409`, y el `signing_secret` se entrega en claro **una única vez** — por
+eso `scripts/register_webhook.py` lo escribe directo al `.env` en vez de
+imprimirlo.
 
 ### Crear una API key
 
@@ -217,6 +271,19 @@ reintentar a ciegas.
 
 Un `409` tampoco se reintenta ciegamente. Los `500` y `502` sí admiten backoff,
 conservando la misma key cuando hay dinero de por medio.
+
+---
+
+## Panel de operación
+
+`GET /api/v1/mam/ops/pending` junta en un solo lugar todo lo que quedó a medias,
+con la razón de por qué espera. El campo `needs_human` distingue lo que **no** se
+resuelve solo con los timers: un movimiento con resultado incierto o una baja a
+medio camino necesitan una decisión; una suscripción cerrando posiciones, no.
+
+`GET /api/v1/mam/ops/readiness` es distinto de `/health`: mira si falta
+configuración que **recién se nota cuando alguien intenta usar una función**. Sin
+grupo MT5 el servicio levanta perfecto y falla en la primera creación de cuenta.
 
 ---
 

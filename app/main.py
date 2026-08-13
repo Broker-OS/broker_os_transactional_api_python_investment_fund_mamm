@@ -114,9 +114,20 @@ _TAGS_METADATA = [
         "(el crédito que llega a la cuenta PAYMENT viene consolidado y no dice quién pagó "
         "qué), asentarlo, y cuadrarlo contra lo que el motor acreditó. Es el insumo del "
         "cálculo de comisiones."},
-    {"name": "9. Consultas y reportes", "description":
+    {"name": "9. MAM · Baja de cuentas", "description":
+        "Dar de baja una cuenta del motor. **No es un borrado inmediato**: es una operación "
+        "asincrónica que puede tener que cerrar posiciones antes de purgar. Incluye el "
+        "análisis de impacto previo, obligatorio."},
+    {"name": "10. MAM · Rendimiento", "description":
+        "Cómo le va al cliente y a las estrategias. La vista consolidada por cliente junta "
+        "lo que el motor no puede armar solo: él no sabe que varias cuentas MT5 son de la "
+        "misma persona."},
+    {"name": "11. Operación (incidentes)", "description":
+        "Qué quedó a medias y necesita una persona, y si el servicio está en condiciones "
+        "de operar de verdad."},
+    {"name": "12. Consultas y reportes", "description":
         "Historial de movimientos, conciliación ledger↔MT5 y reportes contables."},
-    {"name": "12. Depósitos on-chain (cripto)", "description":
+    {"name": "13. Depósitos on-chain (cripto)", "description":
         "Presentar un comprobante de pago en **USDC sobre una cadena EVM** y verificarlo "
         "contra la cadena. Si es válido **acredita la cuenta maestra** y avisa a los ADMIN "
         "por email. Nada se cree por lo declarado: lo único que vale es lo que dice la cadena."},

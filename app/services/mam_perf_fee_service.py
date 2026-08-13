@@ -168,6 +168,39 @@ class MamPerfFeeService:
             "pending_attribution": sorted(set(sin_atribuir)),
         }
 
+    async def reconcile_all(
+        self, *, from_at: Optional[str] = None, to_at: Optional[str] = None,
+        caller=None,
+    ) -> dict:
+        """Concilia todas las estrategias registradas. Pensado para el cron.
+
+        Una estrategia que falla no frena a las demas: se anota y se sigue. Si
+        una sola caida del motor abortara la corrida entera, un leader con un
+        problema puntual dejaria sin conciliar a todos los demas.
+        """
+        perfiles, _ = await self.repo.list_profiles(limit=500)
+        resumen = {"leaders": len(perfiles), "reconciled": 0, "failed": 0,
+                   "fetched": 0, "posted_to_ledger": 0, "errors": [],
+                   "pending_attribution": []}
+
+        for perfil in perfiles:
+            try:
+                r = await self.reconcile(master_login=perfil.account_login,
+                                         from_at=from_at, to_at=to_at, caller=caller)
+            except Exception as exc:  # noqa: BLE001
+                resumen["failed"] += 1
+                resumen["errors"].append(f"{perfil.account_login}: {type(exc).__name__}")
+                logger.warning("MAM: fallo la conciliacion de %s (%s)",
+                               perfil.account_login, type(exc).__name__)
+                continue
+            resumen["reconciled"] += 1
+            resumen["fetched"] += r["fetched"]
+            resumen["posted_to_ledger"] += r["posted_to_ledger"]
+            resumen["pending_attribution"] += r["pending_attribution"]
+
+        resumen["pending_attribution"] = sorted(set(resumen["pending_attribution"]))
+        return resumen
+
     # ══════════════════════════════════════════════════════════════════
     # Cuadre contra el credito consolidado
     # ══════════════════════════════════════════════════════════════════

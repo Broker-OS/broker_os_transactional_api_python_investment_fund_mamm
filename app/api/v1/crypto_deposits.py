@@ -14,7 +14,7 @@ from app.schemas.crypto_deposit import (
 )
 from app.services.crypto_deposit_service import CryptoDepositService
 
-router = APIRouter(tags=["12. Depósitos on-chain (cripto)"])
+router = APIRouter(tags=["13. Depósitos on-chain (cripto)"])
 
 
 @router.post("/crypto-deposits", response_model=APIResponse,

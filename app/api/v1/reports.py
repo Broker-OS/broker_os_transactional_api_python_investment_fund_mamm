@@ -21,7 +21,7 @@ from app.schemas.report import (
 )
 from app.services.report_service import ReportService
 
-router = APIRouter(tags=["9. Consultas y reportes"])
+router = APIRouter(tags=["12. Consultas y reportes"])
 
 
 @router.get("/ledger/accounts", response_model=APIResponse,

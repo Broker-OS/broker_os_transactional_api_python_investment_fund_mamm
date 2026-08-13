@@ -19,7 +19,7 @@ from app.schemas.movement import MovementListResponse, MovementRead
 from app.services.trader_service import TraderService
 from app.services.report_service import ReportService
 
-router = APIRouter(tags=["9. Consultas y reportes"])
+router = APIRouter(tags=["12. Consultas y reportes"])
 
 
 def _owner_scope(caller: ApiUser) -> str | None:
