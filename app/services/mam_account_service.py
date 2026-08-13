@@ -325,12 +325,19 @@ class MamAccountService:
     async def update_account(
         self, *, mt5_login: str, name: Optional[str] = None,
         can_be_leader: Optional[bool] = None, can_be_follower: Optional[bool] = None,
-        status: Optional[str] = None, caller=None,
+        status: Optional[str] = None, external_reference: Optional[str] = None,
+        caller=None,
     ) -> MamAccount:
-        """Actualiza capacidades o estado, primero en el motor y despues acá.
+        """Actualiza capacidades, estado o el cliente dueño.
 
-        El orden importa: si guardaramos primero, un rechazo del proveedor nos
-        dejaria diciendo que la cuenta puede ser leader cuando en realidad no.
+        Las capacidades se aplican PRIMERO en el motor: si guardaramos antes, un
+        rechazo del proveedor nos dejaria diciendo que la cuenta puede ser leader
+        cuando en realidad no.
+
+        El cliente dueño, en cambio, es un dato SOLO NUESTRO: el motor no conoce
+        clientes (spec §2). Por eso ese cambio no viaja a ningun lado. Hace falta
+        sobre todo para las cuentas importadas, que llegan sin dueño y no podrian
+        mover capital sin el — el libro contable registra el capital por cliente.
         """
         acc = await self.get_account(mt5_login, caller=caller)
         if await self.repo.is_payment_account(acc.mt5_login):
@@ -338,10 +345,15 @@ class MamAccountService:
                 message="Esa cuenta es la PAYMENT de un leader y no se opera directamente",
                 detail=f"mt5_login={acc.mt5_login}")
 
-        await self._client.update_account(
-            account_login=acc.mt5_login, name=name, can_be_leader=can_be_leader,
-            can_be_follower=can_be_follower, status=status)
+        # Solo se llama al motor si hay algo que le corresponda.
+        if any(v is not None for v in (name, can_be_leader, can_be_follower, status)):
+            await self._client.update_account(
+                account_login=acc.mt5_login, name=name, can_be_leader=can_be_leader,
+                can_be_follower=can_be_follower, status=status)
 
+        if external_reference is not None:
+            trader = await self._resolve_trader(external_reference, caller=caller)
+            acc.trader_id = trader.id if trader else None
         if name is not None:
             acc.name = name
         if can_be_leader is not None:

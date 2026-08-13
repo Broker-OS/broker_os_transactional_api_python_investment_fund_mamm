@@ -104,6 +104,10 @@ _TAGS_METADATA = [
         "Conectar un cliente con una estrategia: validar elegibilidad, suscribir, "
         "ajustar el modo de asignación, pausar y dar de baja. La baja aplica la política "
         "configurada y cobra el performance fee pendiente."},
+    {"name": "7. MAM · Capital (depósito/retiro)", "description":
+        "Mover capital entre la cuenta maestra y las cuentas MT5 de los clientes, con su "
+        "asiento contable. El retiro **cobra primero el performance fee vencido**, que no "
+        "vuelve a la tesorería sino a la cuenta PAYMENT del leader."},
     {"name": "9. Consultas y reportes", "description":
         "Historial de movimientos, conciliación ledger↔MT5 y reportes contables."},
     {"name": "12. Depósitos on-chain (cripto)", "description":

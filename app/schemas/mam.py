@@ -87,12 +87,17 @@ class MamAccountImportRequest(BaseModel):
 
 
 class MamAccountUpdateRequest(BaseModel):
-    """Cambia capacidades o estado. Enviar solo lo que se quiere modificar."""
+    """Cambia capacidades, estado o el cliente dueño. Enviar solo lo que se modifica."""
 
     name: Optional[str] = Field(default=None, max_length=160)
     can_be_leader: Optional[bool] = None
     can_be_follower: Optional[bool] = None
     status: Optional[AccountStatus] = None
+    external_reference: Optional[str] = Field(
+        default=None,
+        description=("Cliente dueño de la cuenta. Es un dato **solo de este servicio** — el "
+                     "motor no conoce clientes. Hace falta sobre todo en cuentas importadas, "
+                     "que llegan sin dueño y sin él no pueden mover capital."))
 
     model_config = ConfigDict(json_schema_extra={"example": {"can_be_leader": True}})
 
@@ -243,6 +248,48 @@ class LeaderProfileListResponse(BaseModel):
     limit: int
     pages: int
     items: list[LeaderProfileRead]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Capital
+# ══════════════════════════════════════════════════════════════════════
+
+class CapitalOperationRequest(BaseModel):
+    amount: Decimal = Field(gt=0, description="Monto en la moneda del libro. Se trunca a 2 decimales.")
+    idempotency_key: Optional[str] = Field(
+        default=None, max_length=120,
+        description=("Derivala del id de la transacción de tu sistema (`deposit:1234`) y "
+                     "**no la regeneres al reintentar**: con la misma key el motor no "
+                     "duplica el movimiento. Si se omite, el servicio genera una."))
+
+    model_config = ConfigDict(json_schema_extra={"example": {
+        "amount": 500, "idempotency_key": "deposit:crm-84922"}})
+
+
+class CapitalMovementRead(BaseModel):
+    id: str
+    direction: str
+    status: str
+    mt5_login: Optional[str] = None
+    requested_amount: Optional[Decimal] = None
+    effective_amount: Optional[Decimal] = Field(
+        default=None, description="Lo que el motor movió realmente.")
+    perf_fee_at_request: Optional[Decimal] = Field(
+        default=None,
+        description=("Performance fee cobrado en el mismo acto del retiro. **No vuelve a la "
+                     "cuenta maestra**: se acredita en la cuenta PAYMENT del leader."))
+    balance_before: Optional[Decimal] = None
+    balance_after: Optional[Decimal] = None
+    mt5_deal_id: Optional[int] = None
+    provider_result: Optional[str] = Field(
+        default=None,
+        description="`ALREADY_PROCESSED` si el motor reconoció la key y no volvió a debitar.")
+    ledger_tx_id: Optional[str] = None
+    idempotency_key: str
+    error_detail: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ══════════════════════════════════════════════════════════════════════

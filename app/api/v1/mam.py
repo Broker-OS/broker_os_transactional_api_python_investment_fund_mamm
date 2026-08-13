@@ -15,6 +15,8 @@ from app.schemas.mam import (
     AllocationRead,
     AllocationStatusRequest,
     AllocationUpdateRequest,
+    CapitalMovementRead,
+    CapitalOperationRequest,
     EligibilityRead,
     EligibilityRequest,
     LeaderProfileCreateRequest,
@@ -35,6 +37,7 @@ from app.schemas.mam import (
 )
 from app.services.mam_account_service import MamAccountService
 from app.services.mam_allocation_service import MamAllocationService
+from app.services.mam_capital_service import MamCapitalService
 from app.services.mam_leader_service import MamLeaderService
 
 router = APIRouter()
@@ -42,6 +45,7 @@ router = APIRouter()
 _CUENTAS = ["4. MAM · Cuentas"]
 _LEADERS = ["5. MAM · Estrategias (leader)"]
 _ALLOC = ["6. MAM · Suscripciones (allocations)"]
+_CAPITAL = ["7. MAM · Capital (depósito/retiro)"]
 
 
 async def _read(svc: MamAccountService, acc) -> dict:
@@ -184,7 +188,8 @@ async def update_account(mt5_login: str, body: MamAccountUpdateRequest,
     svc = MamAccountService(db)
     acc = await svc.update_account(
         mt5_login=mt5_login, name=body.name, can_be_leader=body.can_be_leader,
-        can_be_follower=body.can_be_follower, status=body.status, caller=caller)
+        can_be_follower=body.can_be_follower, status=body.status,
+        external_reference=body.external_reference, caller=caller)
     return APIResponse(success=True, http_status=200, message="Cuenta actualizada correctamente",
                        data=await _read(svc, acc))
 
@@ -325,6 +330,91 @@ async def update_leader_profile(account_login: str, body: LeaderProfileUpdateReq
         propagation_mode=body.propagation_mode, status=body.status)
     return APIResponse(success=True, http_status=200, message="Estrategia actualizada correctamente",
                        data=LeaderProfileRead.model_validate(profile).model_dump(mode="json"))
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Capital
+# ══════════════════════════════════════════════════════════════════════
+
+@router.post("/mam/accounts/{mt5_login}/deposits", response_model=APIResponse, tags=_CAPITAL,
+             status_code=status.HTTP_201_CREATED,
+             summary="Depositar en la cuenta MT5 del cliente",
+             description=(
+                 "Mueve capital **de la cuenta maestra a la cuenta MT5** del cliente, y lo "
+                 "asienta en el libro contable.\n\n"
+                 "El saldo se **reserva primero** en la cuenta maestra, después se llama al "
+                 "motor, y recién ahí se confirma el asiento. Si el motor rechaza, la reserva "
+                 "se libera. Sin esa reserva, dos depósitos simultáneos podrían comprometer "
+                 "dos veces el mismo saldo.\n\n"
+                 "Es **idempotente**: reintentar con la misma `idempotency_key` no duplica "
+                 "el movimiento. Derivala del id de tu transacción y no la regeneres al "
+                 "reintentar.\n\n"
+                 "Si el resultado queda incierto (timeout), el movimiento queda `AMBIGUOUS` "
+                 "y **la reserva se mantiene**: liberarla podría comprometer dos veces el "
+                 "mismo saldo si el depósito sí se ejecutó."
+             ))
+async def deposit(mt5_login: str, body: CapitalOperationRequest,
+                  db: AsyncSession = Depends(get_db),
+                  caller: ApiUser = Depends(require_api_key)):
+    mv = await MamCapitalService(db).deposit(
+        mt5_login=mt5_login, amount=body.amount,
+        idempotency_key=body.idempotency_key, caller=caller)
+    return APIResponse(success=True, http_status=201, message="Depósito realizado correctamente",
+                       data=CapitalMovementRead.model_validate(mv).model_dump(mode="json"))
+
+
+@router.post("/mam/accounts/{mt5_login}/withdrawals", response_model=APIResponse, tags=_CAPITAL,
+             status_code=status.HTTP_201_CREATED,
+             summary="Retirar de la cuenta MT5 del cliente",
+             description=(
+                 "Mueve capital **de la cuenta MT5 a la cuenta maestra**.\n\n"
+                 "⚠️ **El retiro cobra primero el performance fee vencido.** El motor rechaza "
+                 "la operación si el free margin restante no cubre el fee más el monto pedido, "
+                 "así que no hay retiros parciales: sale completo o falla.\n\n"
+                 "Lo que sí varía es cuánto capital pierde el cliente en total — el monto "
+                 "pedido **más** el fee cobrado en el camino. Ese fee viene en "
+                 "`perf_fee_at_request` y **no vuelve a la cuenta maestra**: se acredita en la "
+                 "cuenta PAYMENT del leader, así que genera un asiento propio contra "
+                 "`PERF_FEE_PAID`.\n\n"
+                 "Si `provider_result` es `ALREADY_PROCESSED`, el motor reconoció la key y no "
+                 "volvió a debitar: no se asienta de nuevo."
+             ))
+async def withdraw(mt5_login: str, body: CapitalOperationRequest,
+                   db: AsyncSession = Depends(get_db),
+                   caller: ApiUser = Depends(require_api_key)):
+    mv = await MamCapitalService(db).withdraw(
+        mt5_login=mt5_login, amount=body.amount,
+        idempotency_key=body.idempotency_key, caller=caller)
+    msg = ("Retiro realizado correctamente" if mv.status == "COMPLETED"
+           else "El motor aceptó la solicitud pero no movió fondos")
+    return APIResponse(success=True, http_status=201, message=msg,
+                       data=CapitalMovementRead.model_validate(mv).model_dump(mode="json"))
+
+
+@router.get("/mam/accounts/{mt5_login}/balance-transactions", response_model=APIResponse,
+            tags=_CAPITAL, summary="Historial contable de la cuenta según el motor",
+            description=(
+                "Depósitos, retiros, créditos de performance fee y demás movimientos, **tal "
+                "como los ve el motor**.\n\n"
+                "Es la contraparte de `/movements`: acá aparecen también los que no "
+                "originamos nosotros — créditos de fee, ajustes del broker — que en nuestro "
+                "libro no existen. Sirve para conciliar.\n\n"
+                "Para ver un crédito de fee de un leader: usar su login **operativo** con "
+                "`transaction_type=PF_CREDIT` y `status=EXECUTED`."
+            ))
+async def balance_transactions(
+    mt5_login: str,
+    transaction_type: Optional[str] = Query(None, description="Por ejemplo `PF_CREDIT`."),
+    tx_status: Optional[str] = Query(None, alias="status"),
+    cursor: Optional[int] = Query(None),
+    limit: Optional[int] = Query(None, ge=1, le=200),
+    db: AsyncSession = Depends(get_db), caller: ApiUser = Depends(require_api_key),
+):
+    data = await MamCapitalService(db).balance_transactions(
+        mt5_login=mt5_login, transaction_type=transaction_type, tx_status=tx_status,
+        cursor=cursor, limit=limit, caller=caller)
+    return APIResponse(success=True, http_status=200, message="Historial obtenido correctamente",
+                       data=data)
 
 
 # ══════════════════════════════════════════════════════════════════════
