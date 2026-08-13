@@ -93,6 +93,13 @@ _TAGS_METADATA = [
         "**Solo ADMIN.**"},
     {"name": "3. Clientes", "description":
         "Registrar y listar clientes. Un USER solo ve los suyos."},
+    {"name": "4. MAM · Cuentas", "description":
+        "Crear cuentas MT5 nuevas o registrar existentes, consultar su balance en vivo, "
+        "entregar credenciales y cambiar sus capacidades (`can_be_leader` / `can_be_follower`)."},
+    {"name": "5. MAM · Estrategias (leader)", "description":
+        "Convertir una cuenta en estrategia seguible: fee, mínimo de suscripción, "
+        "visibilidad y propagación. Incluye el saldo y el retiro de la **cuenta PAYMENT** "
+        "donde se acumulan los performance fees del leader."},
     {"name": "9. Consultas y reportes", "description":
         "Historial de movimientos, conciliación ledger↔MT5 y reportes contables."},
     {"name": "12. Depósitos on-chain (cripto)", "description":

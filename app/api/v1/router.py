@@ -17,6 +17,7 @@ from app.api.deps import require_admin, require_api_key
 from app.api.v1 import (
     admin,
     crypto_deposits,
+    mam,
     master_account,
     movements,
     reports,
@@ -25,6 +26,7 @@ from app.api.v1 import (
 
 api_router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
 api_router.include_router(traders.router)
+api_router.include_router(mam.router)
 api_router.include_router(crypto_deposits.router)
 api_router.include_router(movements.router)
 api_router.include_router(master_account.router)
