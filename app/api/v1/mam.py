@@ -37,6 +37,8 @@ from app.schemas.mam import (
     PerfFeeReconcileRead,
     PerfFeeReconcileRequest,
     PerfFeeVerifyRead,
+    WebhookEventListResponse,
+    WebhookEventRead,
     PaymentAccountWithdrawRead,
     PaymentAccountWithdrawRequest,
 )
@@ -45,6 +47,7 @@ from app.services.mam_allocation_service import MamAllocationService
 from app.services.mam_capital_service import MamCapitalService
 from app.services.mam_leader_service import MamLeaderService
 from app.services.mam_perf_fee_service import MamPerfFeeService
+from app.services.mam_webhook_service import MamWebhookService
 
 router = APIRouter()
 
@@ -694,6 +697,50 @@ async def list_perf_fee_payments(
         items=[PerfFeePaymentRead.model_validate(p) for p in rows])
     return APIResponse(success=True, http_status=200, message="Pagos obtenidos correctamente",
                        data=payload.model_dump(mode="json"))
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Eventos del webhook (operación)
+# ══════════════════════════════════════════════════════════════════════
+
+@router.get("/mam/webhook-events", response_model=APIResponse, tags=_FEE,
+            summary="Eventos recibidos del motor",
+            description=(
+                "Historial de avisos de terminación. `only_pending=true` muestra los que "
+                "no se pudieron aplicar — casi siempre porque la suscripción no estaba "
+                "importada cuando llegó el evento."
+            ))
+async def list_webhook_events(
+    only_pending: bool = Query(False, description="Solo los que quedaron sin aplicar."),
+    page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db), caller: ApiUser = Depends(require_api_key),
+):
+    rows, total = await MamWebhookService(db).list_events(
+        only_pending=only_pending, page=page, limit=limit)
+    payload = WebhookEventListResponse(
+        total=total, page=page, limit=limit,
+        pages=ceil(total / limit) if (total and limit) else 0,
+        items=[WebhookEventRead.model_validate(ev) for ev in rows])
+    return APIResponse(success=True, http_status=200, message="Eventos obtenidos correctamente",
+                       data=payload.model_dump(mode="json"))
+
+
+@router.post("/mam/webhook-events/retry", response_model=APIResponse, tags=_FEE,
+             summary="Reintentar los eventos sin aplicar (cron)",
+             description=(
+                 "Vuelve a aplicar los eventos que quedaron pendientes. Un evento cuya "
+                 "suscripción no estaba importada se resuelve solo una vez que la importás.\n\n"
+                 "No le pide nada al proveedor: el evento ya está guardado con su firma "
+                 "verificada."
+             ))
+async def retry_webhook_events(
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db), caller: ApiUser = Depends(require_api_key),
+):
+    data = await MamWebhookService(db).retry_pending(limit=limit)
+    return APIResponse(success=True, http_status=200,
+                       message=f"Revisados {data['reviewed']}, aplicados {data['processed']}",
+                       data=data)
 
 
 @router.get("/mam/leaders/{account_login}/payment-account", response_model=APIResponse,

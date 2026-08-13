@@ -25,6 +25,7 @@ PY = sys.executable
 # se van sumando a medida que se implementan los servicios.
 SIN_BD = [
     "test_mam_client.py",
+    "test_webhook_signature.py",
 ]
 CON_BD = [
     "test_db_perf_fee.py",

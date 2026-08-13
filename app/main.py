@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.api.webhooks import router as webhooks_router
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.exceptions import AppException
@@ -119,6 +120,10 @@ _TAGS_METADATA = [
         "Presentar un comprobante de pago en **USDC sobre una cadena EVM** y verificarlo "
         "contra la cadena. Si es válido **acredita la cuenta maestra** y avisa a los ADMIN "
         "por email. Nada se cree por lo declarado: lo único que vale es lo que dice la cadena."},
+    {"name": "Webhooks", "description":
+        "Endpoint que llama **el proveedor** para avisar que una suscripción terminó — por "
+        "baja del cliente o porque el equity tocó su piso. **No requiere API key**: "
+        "autentica verificando la firma HMAC del cuerpo."},
     {"name": "Salud", "description": "Chequeo de estado del servicio. **No requiere API key.**"},
 ]
 
@@ -175,3 +180,5 @@ async def health():
 
 
 app.include_router(api_router)
+# Fuera de /api/v1: el proveedor autentica firmando el cuerpo, no con nuestra API key.
+app.include_router(webhooks_router)

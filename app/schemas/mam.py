@@ -509,6 +509,40 @@ class PerfFeePaymentListResponse(BaseModel):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# Eventos del webhook
+# ══════════════════════════════════════════════════════════════════════
+
+class WebhookEventRead(BaseModel):
+    id: str
+    event_id: str
+    event_type: str
+    occurred_at: Optional[datetime] = None
+    allocation_id: Optional[int] = None
+    reason: Optional[str] = Field(
+        default=None, description="`USER_UNSUBSCRIBE` o `EQUITY_STOP`.")
+    triggered_by: Optional[str] = Field(default=None, description="`USER` o `SYSTEM`.")
+    allocation_status: Optional[str] = None
+    leader_login: Optional[str] = None
+    follower_login: Optional[str] = None
+    performance_fee_charged: Optional[Decimal] = None
+    signature_verified: bool
+    received_at: datetime
+    processed_at: Optional[datetime] = Field(
+        default=None, description="`null` = recibido pero todavía sin aplicar.")
+    process_error: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WebhookEventListResponse(BaseModel):
+    total: int
+    page: int
+    limit: int
+    pages: int
+    items: list[WebhookEventRead]
+
+
+# ══════════════════════════════════════════════════════════════════════
 # Cuenta PAYMENT
 # ══════════════════════════════════════════════════════════════════════
 
