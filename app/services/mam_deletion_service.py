@@ -153,6 +153,9 @@ class MamDeletionService:
         op.operation_id = _str(data.get("operation_id") or data.get("id"), 64)
         op.status = _str(data.get("status"), 20) or "PENDING"
         op.error_message = _str(data.get("error_message"), 500)
+        # Una cuenta sin posiciones abiertas se purga al instante: la respuesta
+        # de la creacion ya viene COMPLETED y no hay ningun refresh despues.
+        await self._aplicar_completado(op)
         await self.db.commit()
         await self.db.refresh(op)
         logger.info("MAM: baja de %s (%s) creada -> operation_id=%s status=%s",
@@ -163,9 +166,31 @@ class MamDeletionService:
     # Seguimiento
     # ══════════════════════════════════════════════════════════════════
 
+    async def _aplicar_completado(self, op: MamDeletionOperation) -> None:
+        """Marca la cuenta de baja cuando el motor confirma COMPLETED.
+
+        Vive aparte porque hay DOS caminos que llegan a COMPLETED: la
+        sincronizacion posterior, y la respuesta de la creacion cuando el motor
+        resuelve la baja de una (una cuenta sin posiciones abiertas se purga al
+        instante). Si esto solo colgara del primero, la baja instantanea dejaria
+        la cuenta viva aca y muerta alla — para siempre, porque la operacion ya
+        nace terminal y ningun refresh posterior la vuelve a mirar.
+        """
+        if op.status != "COMPLETED" or op.completed_at is not None:
+            return
+        op.completed_at = now_utc()
+        cuenta = await self.repo.get_account_by_login(op.target_login)
+        if cuenta is not None:
+            cuenta.status = ACCOUNT_DELETED
+
     async def refresh(self, op: MamDeletionOperation) -> MamDeletionOperation:
         """Consulta el estado en el motor y lo aplica localmente."""
-        if op.operation_id is None or op.status in _TERMINAL:
+        if op.operation_id is None:
+            return op
+        if op.status in _TERMINAL:
+            # Ya no hay nada que consultar, pero puede haber llegado a terminal
+            # sin pasar por aca. Los efectos locales se aplican igual.
+            await self._aplicar_completado(op)
             return op
 
         if op.target_kind == KIND_MASTER:
@@ -179,13 +204,9 @@ class MamDeletionService:
         op.status = nuevo
         op.error_message = _str(data.get("error_message"), 500)
 
-        if op.status == "COMPLETED" and op.completed_at is None:
-            op.completed_at = now_utc()
-            # Recien ahora se marca la cuenta de nuestro lado. Hacerlo antes
-            # dejaria una cuenta que aca figura muerta y alla sigue copiando.
-            cuenta = await self.repo.get_account_by_login(op.target_login)
-            if cuenta is not None:
-                cuenta.status = ACCOUNT_DELETED
+        # Recien ahora se marca la cuenta de nuestro lado. Hacerlo antes
+        # dejaria una cuenta que aca figura muerta y alla sigue copiando.
+        await self._aplicar_completado(op)
         return op
 
     async def get(self, operation_id: str, *, caller=None) -> MamDeletionOperation:
