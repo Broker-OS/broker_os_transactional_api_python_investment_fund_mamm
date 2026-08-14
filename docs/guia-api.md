@@ -144,6 +144,16 @@ curl -X POST "$BASE/api/v1/mam/accounts" \
 ⚠️ **No es idempotente.** Ante un timeout, consultá por el login **antes** de
 reintentar: repetir a ciegas crea una segunda cuenta real en MT5.
 
+**`external_reference` es obligatorio acá.** Una cuenta sin cliente no puede
+mover capital —el libro contable asienta por cliente— y ningún `USER` la ve. Si
+la estrategia es del propio fondo, dale de alta un cliente que lo represente: no
+perdés nada y te destraba depósitos, resumen y trazabilidad.
+
+En `/register` y `/import` **sí es opcional**, porque esas cuentas ya existían y
+su dueño a veces todavía no se sabe. Las que queden sin asignar aparecen en
+`/mam/ops/pending` como `accounts_without_client`, y se resuelven con
+`PATCH /mam/accounts/{login}`.
+
 `rights_profile` es la máscara de permisos MT5 y **solo se puede fijar acá** —
 ni el registro de una cuenta existente ni la edición posterior la cambian:
 

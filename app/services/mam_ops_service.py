@@ -20,8 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.startup_checks import run_checks
 from app.models.mam import (
+    ACCOUNT_DELETED,
     ALLOC_ERROR,
     ALLOC_STOPPING,
+    MamAccount,
     MamAllocation,
     MamDeletionOperation,
     MamPerfFeePayment,
@@ -59,6 +61,13 @@ class MamOpsService:
             MamAllocation, MamAllocation.status == ALLOC_STOPPING)
         suscripciones_en_error = await self._count(
             MamAllocation, MamAllocation.status == ALLOC_ERROR)
+        # El alta exige cliente, pero register/import no pueden: traen cuentas
+        # que ya existian y cuyo dueño a veces todavia no se sabe. Sin esto la
+        # cuenta queda muda hasta que alguien intenta depositarle y no puede.
+        cuentas_sin_cliente = await self._count(
+            MamAccount,
+            MamAccount.trader_id.is_(None),
+            MamAccount.status != ACCOUNT_DELETED)
 
         items = [
             {"key": "ambiguous_movements", "count": movimientos_inciertos,
@@ -98,6 +107,12 @@ class MamOpsService:
              "needs_human": True,
              "what": "Suscripciones en error",
              "why": "El motor las marco ERROR: requieren intervencion operativa."},
+            {"key": "accounts_without_client", "count": cuentas_sin_cliente,
+             "needs_human": True,
+             "what": "Cuentas sin cliente asociado",
+             "why": ("Llegaron por register o import, que no siempre saben de quien es la "
+                     "cuenta. Sin dueño no pueden mover capital ni las ve un USER. "
+                     "Asignarlo con PATCH /mam/accounts/{login}.")},
         ]
 
         requiere_accion = sum(i["count"] for i in items if i["needs_human"])

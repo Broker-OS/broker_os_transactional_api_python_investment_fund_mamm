@@ -20,10 +20,12 @@ RightsProfile = Literal["TRADING_ENABLED", "TRADING_DISABLED"]
 class MamAccountCreateRequest(BaseModel):
     """Crea la cuenta en MT5 y la registra en MAM (spec §5, paso 1)."""
 
-    external_reference: Optional[str] = Field(
-        default=None,
-        description=("Cliente dueño de la cuenta. Si se omite, la cuenta queda sin "
-                     "cliente asociado (estrategia propia del broker)."))
+    external_reference: str = Field(
+        min_length=1,
+        description=("Cliente dueño de la cuenta. **Obligatorio al crear**: sin dueño la "
+                     "cuenta no puede mover capital (el libro contable asienta por cliente) "
+                     "y ningún USER la ve. Para una estrategia del propio fondo, darle de "
+                     "alta un cliente que represente al fondo."))
     first_name: str = Field(max_length=120, description="MT5 exige nombre del titular.")
     last_name: str = Field(max_length=120)
     name: str = Field(max_length=160, description="Nombre visible de la cuenta.")
