@@ -89,18 +89,23 @@ class ReportService:
     async def list_ledger_transactions(
         self, *, trader_external_reference: Optional[str], kind: Optional[str],
         status: Optional[str], date_from: Optional[date], date_to: Optional[date],
-        page: int, limit: int,
+        page: int, limit: int, owner_api_user_id: Optional[str] = None,
     ) -> tuple[list[dict], int]:
         trader_id = None
         if trader_external_reference:
             tr = await self.trader_repo.get_by_external_reference(trader_external_reference)
             if tr is None:
                 raise TraderNotFoundError(message="El trader no existe", detail=trader_external_reference)
+            # Mismo "no existe" que para un id inventado: distinguirlos dejaria
+            # enumerar la cartera de otro socio por el libro contable, que es
+            # justo lo que /movements ya impide.
+            if owner_api_user_id is not None and tr.owner_api_user_id != owner_api_user_id:
+                raise TraderNotFoundError(message="El trader no existe", detail=trader_external_reference)
             trader_id = tr.id
         df = _day_start(date_from) if date_from else None
         dt = _day_start(date_to + timedelta(days=1)) if date_to else None
         tx_rows, entries_by_tx, total = await self.ledger_repo.list_transactions(
-            trader_id=trader_id, kind=kind, status=status,
+            trader_id=trader_id, owner_api_user_id=owner_api_user_id, kind=kind, status=status,
             date_from=df, date_to=dt, page=page, limit=limit)
         items = []
         for tx, extref in tx_rows:

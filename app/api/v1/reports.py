@@ -6,8 +6,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_api_key
 from app.core.config import settings
 from app.db.database import get_db
+from app.models.api_user import ROLE_ADMIN, ApiUser
 from app.schemas.common import APIResponse
 from app.schemas.report import (
     AccountBalanceRow,
@@ -22,6 +24,11 @@ from app.schemas.report import (
 from app.services.report_service import ReportService
 
 router = APIRouter(tags=["12. Consultas y reportes"])
+
+
+def _owner_scope(caller: ApiUser) -> str | None:
+    """None si es ADMIN (ve todo); su propio id si es USER (solo lo suyo)."""
+    return None if caller.role == ROLE_ADMIN else caller.id
 
 
 @router.get("/ledger/accounts", response_model=APIResponse,
@@ -54,12 +61,17 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
                 "Recordá el sentido: **depositar a un Investor baja** la cuenta maestra "
                 "(`credit`) y **retirar la sube** (`debit`) — el dinero sale del fondo común "
                 "y vuelve a él.\n\n"
+                "Un **USER** ve solo el libro de sus propios clientes; un **ADMIN**, todo. "
+                "Como el fondeo de la cuenta maestra no pertenece a ningún cliente, un USER "
+                "no lo ve — es dinero del fondo, no de su cartera.\n\n"
                 "Más nueva primero. Filtros: `trader` (external_reference), `kind` "
                 "(`TRADER_DEPOSIT`/`TRADER_WITHDRAWAL`/`MASTER_ACCOUNT_FUNDING`/`PERF_FEE`), "
                 "`status` (`PENDING`/`POSTED`/`FAILED`), `date_from`, `date_to`, `page`, `limit`.\n\n"
-                "Nota: el P&L del trading **no** es un asiento (no es un movimiento de caja); se "
-                "ve en `/pamm/reports/reconciliation`. Los retiros `REJECTED` y los fees sin "
-                "atribuir se ven en `/movements` y `/pamm/perf-fee/payments` respectivamente."
+                "Nota: el P&L del trading **no** es un asiento (no es un movimiento de caja); "
+                "se ve en vivo desde MT5 en `/mam/accounts/{mt5_login}/metrics` y en los "
+                "endpoints de rendimiento. Los retiros `REJECTED` se ven en `/movements`, y "
+                "los fees cobrados sin atribuir en "
+                "`/mam/perf-fee/payments?only_unposted=true`."
             ))
 async def list_ledger_transactions(
     trader: Optional[str] = Query(None, description="external_reference del trader"),
@@ -70,10 +82,12 @@ async def list_ledger_transactions(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    caller: ApiUser = Depends(require_api_key),
 ):
     items, total = await ReportService(db).list_ledger_transactions(
         trader_external_reference=trader, kind=kind, status=status_filter,
-        date_from=date_from, date_to=date_to, page=page, limit=limit)
+        date_from=date_from, date_to=date_to, page=page, limit=limit,
+        owner_api_user_id=_owner_scope(caller))
     payload = LedgerTransactionListResponse(
         total=total, page=page, limit=limit,
         pages=ceil(total / limit) if (total and limit) else 0,

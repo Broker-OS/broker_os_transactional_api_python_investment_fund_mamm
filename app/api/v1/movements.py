@@ -1,8 +1,9 @@
-"""Endpoints de historial de movimientos (depósito/retiro/fondeo, ambos rails).
+"""Endpoints de historial de movimientos (depósito/retiro/fondeo).
 
-El movimiento de capital se hace por el **rail PAMM** (`/traders/{ref}/pamm/deposits`
-y `/pamm/withdrawals`). El rail wallet viejo (`/deposits`, `/withdrawals` directos)
-fue removido. Acá solo queda la consulta del historial, que cubre ambos rails.
+Acá NO se mueve capital, solo se consulta. El capital se mueve en tres lugares:
+`/mam/accounts/{mt5_login}/deposits` y `/withdrawals` (maestra <-> cuenta MT5 del
+cliente), `/master-account/funding` (externo -> maestra, con OTP) y
+`/crypto-deposits` (USDC on-chain -> maestra). Este historial los cubre a todos.
 """
 from datetime import date
 from math import ceil

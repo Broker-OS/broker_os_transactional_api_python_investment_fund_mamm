@@ -128,7 +128,8 @@ class LedgerRepository:
         return list((await self.db.execute(stmt)).all())
 
     async def list_transactions(
-        self, *, trader_id: Optional[str] = None, kind: Optional[str] = None,
+        self, *, trader_id: Optional[str] = None, owner_api_user_id: Optional[str] = None,
+        kind: Optional[str] = None,
         status: Optional[str] = None, date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None, page: int = 1, limit: int = 50,
     ) -> tuple[list, dict, int]:
@@ -145,10 +146,17 @@ class LedgerRepository:
         if date_to:
             filters.append(LedgerTransaction.created_at < date_to)
 
-        total = (
-            await self.db.execute(
-                select(func.count()).select_from(LedgerTransaction).where(*filters))
-        ).scalar_one()
+        count_stmt = select(func.count()).select_from(LedgerTransaction)
+        # Scoping por dueño, mismo criterio que /movements: el join a traders
+        # deja afuera las transacciones sin trader (el fondeo de la maestra), que
+        # son del fondo y no de un cliente. En la consulta de filas el join ya
+        # existe como outer para traer el external_reference; sumarle este filtro
+        # la vuelve efectivamente inner, que es justo lo que se busca.
+        if owner_api_user_id:
+            count_stmt = count_stmt.join(Trader, Trader.id == LedgerTransaction.trader_id)
+            filters.append(Trader.owner_api_user_id == owner_api_user_id)
+
+        total = (await self.db.execute(count_stmt.where(*filters))).scalar_one()
         tx_rows = (
             await self.db.execute(
                 select(LedgerTransaction, Trader.external_reference)

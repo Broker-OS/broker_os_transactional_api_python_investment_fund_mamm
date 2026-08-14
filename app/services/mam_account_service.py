@@ -185,7 +185,11 @@ class MamAccountService:
             status=data.get("status") or ACCOUNT_ACTIVE,
             can_be_leader=bool(data.get("can_be_leader", can_be_leader)),
             can_be_follower=bool(data.get("can_be_follower", can_be_follower)),
-            platform_group=data.get("platform_group") or platform_group or settings.MAM_MT5_PLATFORM_GROUP,
+            # Si el motor no lo devuelve, el respaldo es `group`: el valor que se
+            # le mando. El motor NO devuelve platform_group al CONSULTAR una
+            # cuenta, asi que este registro es el unico lugar donde queda en que
+            # grupo cayo — un respaldo vacio lo perderia para siempre.
+            platform_group=data.get("platform_group") or group,
             leverage=_as_int(data.get("leverage")) or leverage or settings.MAM_MT5_DEFAULT_LEVERAGE,
             # `rights` efectivamente aplicado, que puede diferir del pedido.
             rights=_as_int(data.get("rights")) or rights,
