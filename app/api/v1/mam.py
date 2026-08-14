@@ -446,6 +446,12 @@ async def withdraw(mt5_login: str, body: CapitalOperationRequest,
                  "aunque haya entrado por un atajo. La maestra baja.\n\n"
                  "Es **idempotente**: la clave deriva del id de la transacción del motor, "
                  "así que correrlo dos veces no duplica el asiento.\n\n"
+                 "**Cuenta importada, historial vacío de este lado.** Con "
+                 "`include_internal=true` reconstruye también los depósitos y retiros que "
+                 "originamos nosotros — el caso de una cuenta que se importa después de "
+                 "haber operado. Se rechaza con `409` si la cuenta ya tiene movimientos "
+                 "registrados acá: ahí esos asientos ya existen y rehacerlos contaría el "
+                 "mismo dinero dos veces.\n\n"
                  "**El P&L del trading no entra acá.** No es un movimiento de caja: el "
                  "dinero no entró ni salió, cambió de valor. Por eso la diferencia entre el "
                  "saldo MT5 y lo asentado no tiene por qué dar cero — perseguirla sería "
@@ -454,10 +460,15 @@ async def withdraw(mt5_login: str, body: CapitalOperationRequest,
 async def regularize_capital(mt5_login: str,
                              apply: bool = Query(
                                  False, description="`false` simula; `true` escribe los asientos."),
+                             include_internal: bool = Query(
+                                 False,
+                                 description=("También reconstruye los depósitos y retiros "
+                                              "**propios**. Solo para cuentas importadas cuyo "
+                                              "historial esté vacío de este lado.")),
                              db: AsyncSession = Depends(get_db),
                              caller: ApiUser = Depends(require_admin)):
     data = await MamCapitalService(db).regularize(
-        mt5_login=mt5_login, apply=apply, caller=caller)
+        mt5_login=mt5_login, apply=apply, include_internal=include_internal, caller=caller)
     msg = (f"Simulación: {data['found']} movimiento(s) externos, "
            f"{data['already_posted']} ya asentados. Nada escrito." if not apply
            else f"{data['posted']} asiento(s) creados por {data['net_amount']}")

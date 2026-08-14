@@ -32,7 +32,7 @@ import uuid
 from decimal import ROUND_DOWN, Decimal
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -325,7 +325,21 @@ class MamCapitalService:
     # Regularizacion contable
     # ══════════════════════════════════════════════════════════════════
 
-    async def regularize(self, *, mt5_login: str, apply: bool = False, caller=None) -> dict:
+    async def _sin_movimientos_locales(self, acc: MamAccount) -> bool:
+        """Si esta cuenta no tiene NINGUN movimiento registrado de este lado.
+
+        Es la condicion que hace seguro reconstruir el libro desde el historial
+        del motor: si no hay movimientos locales, no hay nada que se pueda
+        duplicar. Con movimientos, los depositos internos YA estan asentados por
+        el flujo normal y volver a asentarlos contaria el mismo dinero dos veces.
+        """
+        n = (await self.db.execute(
+            select(func.count()).select_from(Movement).where(
+                Movement.mam_account_id == acc.id))).scalar_one()
+        return n == 0
+
+    async def regularize(self, *, mt5_login: str, apply: bool = False,
+                         include_internal: bool = False, caller=None) -> dict:
         """Asienta el capital que entro a la cuenta SIN pasar por nuestros rails.
 
         Una cuenta puede tener saldo que nuestro libro no conoce: el broker la
@@ -337,6 +351,11 @@ class MamCapitalService:
         transaccion del motor, con la key derivada de su id — asi correrlo dos
         veces no duplica nada.
 
+        `include_internal` amplia el barrido a los DEPOSIT/WITHDRAWAL propios,
+        que es lo que hace falta cuando la cuenta se importo y su historial vive
+        entero del lado del motor. Solo se acepta si la cuenta NO tiene
+        movimientos locales: con movimientos, esos depositos ya estan asentados.
+
         Ojo con lo que NO entra: el P&L del trading no es un movimiento de caja
         (el dinero no entro ni salio, cambio de valor) y no lleva asiento. Por
         eso la diferencia entre el saldo MT5 y lo asentado no tiene por que ser
@@ -344,14 +363,26 @@ class MamCapitalService:
         """
         acc, trader_id = await self._resolve(mt5_login, caller=caller)
 
+        if include_internal and not await self._sin_movimientos_locales(acc):
+            raise OperationInFlightError(
+                message="Esa cuenta ya tiene movimientos registrados acá",
+                detail=(f"mt5_login={acc.mt5_login}: sus depositos y retiros internos ya "
+                        f"estan asentados por el flujo normal. Reconstruirlos contaria el "
+                        f"mismo dinero dos veces. `include_internal` es solo para cuentas "
+                        f"importadas cuyo historial este completo del lado del motor y "
+                        f"vacio del nuestro."))
+
         data = await self._client.list_balance_transactions(account_login=acc.mt5_login)
         filas = data.get("items") if isinstance(data, dict) else data
         movimientos = []
         for t in (filas or []):
             tipo = str(t.get("transaction_type") or "").upper()
-            # Solo el capital que no originamos nosotros. Los DEPOSIT/WITHDRAWAL
-            # ya estan asentados, y los PF_CREDIT los concilia /perf-fee.
-            if not tipo.startswith("EXTERNAL"):
+            # Por defecto, solo el capital que no originamos nosotros: los
+            # DEPOSIT/WITHDRAWAL ya estan asentados y los PF_CREDIT los concilia
+            # /perf-fee. Con include_internal tambien entran los internos, que es
+            # lo que hace falta para reconstruir el libro de una cuenta importada.
+            interno = tipo in ("DEPOSIT", "WITHDRAWAL")
+            if not (tipo.startswith("EXTERNAL") or (include_internal and interno)):
                 continue
             if str(t.get("status") or "").upper() != "EXECUTED":
                 continue
