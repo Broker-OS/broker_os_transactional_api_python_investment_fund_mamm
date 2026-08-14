@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_api_key
+from app.api.deps import require_admin, require_api_key
 from app.db.database import get_db
 from app.models.api_user import ApiUser
 from app.schemas.common import APIResponse
@@ -17,6 +17,7 @@ from app.schemas.mam import (
     AllocationUpdateRequest,
     CapitalMovementRead,
     CapitalOperationRequest,
+    CapitalRegularizationRead,
     DeletionOperationListResponse,
     DeletionOperationRead,
     DeletionRequest,
@@ -182,7 +183,13 @@ async def list_accounts(
     rows, total = await svc.list_accounts(
         caller=caller, external_reference=external_reference, can_be_leader=can_be_leader,
         can_be_follower=can_be_follower, status=account_status, page=page, limit=limit)
+    # Sin esto el campo sale con su default (False) para TODAS las cuentas,
+    # incluidas las que si son estrategias. Un panel que liste cuentas mostraria
+    # "sin estrategia" en una que la tiene, y del otro lado no hay forma de notarlo.
+    con_perfil = await svc.accounts_with_profile(rows)
     items = [MamAccountRead.model_validate(a) for a in rows]
+    for it, a in zip(items, rows):
+        it.has_leader_profile = a.id in con_perfil
     payload = MamAccountListResponse(
         total=total, page=page, limit=limit,
         pages=ceil(total / limit) if (total and limit) else 0, items=items)
@@ -416,6 +423,41 @@ async def withdraw(mt5_login: str, body: CapitalOperationRequest,
            else "El motor aceptó la solicitud pero no movió fondos")
     return APIResponse(success=True, http_status=201, message=msg,
                        data=CapitalMovementRead.model_validate(mv).model_dump(mode="json"))
+
+
+@router.post("/mam/accounts/{mt5_login}/regularize-capital", response_model=APIResponse,
+             tags=_CAPITAL, summary="Asentar capital que entró sin pasar por acá (ADMIN)",
+             description=(
+                 "Escribe en el libro el capital que ya está en la cuenta MT5 pero que "
+                 "**nunca pasó por estos endpoints** — el broker la acreditó directo, o la "
+                 "cuenta venía con saldo de antes de la integración. El motor los marca "
+                 "con un tipo `EXTERNAL_*`, distinto de los que originamos nosotros.\n\n"
+                 "⚠️ **No mueve un peso en MT5.** Solo escribe los asientos que faltaban. "
+                 "Para mover dinero de verdad está `/deposits`.\n\n"
+                 "Empezá siempre con `apply=false`, que **simula y no escribe nada**. "
+                 "Recién cuando el detalle te cuadre, repetí con `apply=true`.\n\n"
+                 "Los asientos van **contra la cuenta maestra**, igual que un depósito "
+                 "normal: la decisión contable es que ese capital lo colocó el fondo, "
+                 "aunque haya entrado por un atajo. La maestra baja.\n\n"
+                 "Es **idempotente**: la clave deriva del id de la transacción del motor, "
+                 "así que correrlo dos veces no duplica el asiento.\n\n"
+                 "**El P&L del trading no entra acá.** No es un movimiento de caja: el "
+                 "dinero no entró ni salió, cambió de valor. Por eso la diferencia entre el "
+                 "saldo MT5 y lo asentado no tiene por qué dar cero — perseguirla sería "
+                 "inventar plata que nadie depositó."
+             ))
+async def regularize_capital(mt5_login: str,
+                             apply: bool = Query(
+                                 False, description="`false` simula; `true` escribe los asientos."),
+                             db: AsyncSession = Depends(get_db),
+                             caller: ApiUser = Depends(require_admin)):
+    data = await MamCapitalService(db).regularize(
+        mt5_login=mt5_login, apply=apply, caller=caller)
+    msg = (f"Simulación: {data['found']} movimiento(s) externos, "
+           f"{data['already_posted']} ya asentados. Nada escrito." if not apply
+           else f"{data['posted']} asiento(s) creados por {data['net_amount']}")
+    return APIResponse(success=True, http_status=200, message=msg,
+                       data=CapitalRegularizationRead(**data).model_dump(mode="json"))
 
 
 @router.get("/mam/accounts/{mt5_login}/balance-transactions", response_model=APIResponse,

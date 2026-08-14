@@ -180,6 +180,67 @@ class LedgerService:
         tx.posted_at = datetime.now(timezone.utc)
         return tx.id
 
+    # ── regularizacion de capital preexistente ──
+    async def post_capital_regularization(
+        self, *, trader_id: str, amount: Decimal, idempotency_key: str,
+        description: str, incoming: bool,
+    ) -> str:
+        """Asienta capital que entro o salio de una cuenta MT5 SIN pasar por acá.
+
+        Es el caso de una cuenta que el broker acredito directo, o de una cuenta
+        importada que ya tenia saldo: el dinero existe en MT5 y nuestro libro no
+        lo sabe. NO mueve nada en MT5 — solo escribe el asiento que faltaba.
+
+        Los asientos son los mismos que los de un deposito o retiro normal, y
+        contra la cuenta maestra: la decision contable es que ese capital lo
+        coloco el fondo, aunque haya entrado por un atajo.
+
+        Idempotente por `idempotency_key`, que deriva del id de la transaccion
+        del motor: regularizar dos veces la misma no duplica el asiento.
+        """
+        existing = (
+            await self.db.execute(
+                select(LedgerTransaction).where(
+                    LedgerTransaction.idempotency_key == idempotency_key))
+        ).scalar_one_or_none()
+        if existing is not None and existing.status == "POSTED":
+            return existing.id
+
+        await self.repo.ensure_global_accounts()
+        await self.repo.ensure_trader_holdings(trader_id)
+        cold = await self.repo.account_for_update(code=CODE_MASTER_ACCOUNT)
+        holdings = await self.repo.account_for_update(
+            code=CODE_TRADER_HOLDINGS, trader_id=trader_id)
+        if cold is None or holdings is None:
+            raise RuntimeError("LEDGER_ACCOUNTS_MISSING")
+
+        if incoming:
+            # La maestra paga: no puede quedar en descubierto por un asiento
+            # retroactivo, que es justo cuando nadie lo estaria mirando.
+            balance = await self.repo.recompute_balance(cold.id)
+            pending = Decimal(str(cold.pending_debit or 0))
+            if balance - pending < amount:
+                raise ValueError(
+                    f"INSUFFICIENT_MASTER_ACCOUNT: balance={balance} "
+                    f"pending={pending} requested={amount}")
+
+        tx = existing or self._new_tx(
+            kind="TRADER_DEPOSIT" if incoming else "TRADER_WITHDRAWAL",
+            idempotency_key=idempotency_key, amount=amount,
+            trader_id=trader_id, description=description,
+        )
+        if existing is None:
+            await self.db.flush()
+        if incoming:
+            self._apply_entry(tx=tx, account=cold, credit=amount)
+            self._apply_entry(tx=tx, account=holdings, debit=amount)
+        else:
+            self._apply_entry(tx=tx, account=cold, debit=amount)
+            self._apply_entry(tx=tx, account=holdings, credit=amount)
+        tx.status = "POSTED"
+        tx.posted_at = datetime.now(timezone.utc)
+        return tx.id
+
     # ── retiro de trader (trader → cold), posteo directo ──
     async def post_withdrawal(self, *, trader_id: str, amount: Decimal, idempotency_key: str) -> str:
         existing = (

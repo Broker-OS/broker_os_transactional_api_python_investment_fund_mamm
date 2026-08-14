@@ -294,6 +294,27 @@ class CapitalMovementRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CapitalRegularizationItem(BaseModel):
+    provider_tx_id: int
+    transaction_type: str
+    amount: Decimal
+    incoming: bool = Field(description="`true` entró capital a la cuenta; `false` salió.")
+    executed_at: Optional[str] = None
+    ledger_tx_id: Optional[str] = Field(
+        default=None, description="`null` si todavía no se asentó (modo simulación).")
+
+
+class CapitalRegularizationRead(BaseModel):
+    mt5_login: str
+    applied: bool = Field(description="`false` = simulación, no se escribió nada.")
+    found: int = Field(description="Movimientos de capital externos que reporta el motor.")
+    already_posted: int = Field(description="Los que ya estaban asentados.")
+    posted: int
+    net_amount: Decimal = Field(
+        description="Neto que se asentaría o se asentó. No incluye P&L de trading.")
+    items: list[CapitalRegularizationItem] = Field(default_factory=list)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Allocations (suscripciones)
 # ══════════════════════════════════════════════════════════════════════

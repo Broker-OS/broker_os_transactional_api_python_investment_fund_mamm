@@ -391,6 +391,10 @@ class MamAccountService:
     async def has_leader_profile(self, account_id: str) -> bool:
         return await self.repo.get_profile_by_account_id(account_id) is not None
 
+    async def accounts_with_profile(self, accounts) -> set[str]:
+        """Ids (de los que se le pasen) que tienen perfil de leader."""
+        return await self.repo.account_ids_with_profile([a.id for a in accounts])
+
 
 def _as_int(value: Any) -> Optional[int]:
     """Los ids y numeros del proveedor a veces llegan como string."""

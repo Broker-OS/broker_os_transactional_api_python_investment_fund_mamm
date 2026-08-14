@@ -32,6 +32,7 @@ import uuid
 from decimal import ROUND_DOWN, Decimal
 from typing import Any, Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -47,6 +48,7 @@ from app.core.exceptions import (
     ProviderPayloadError,
     TraderHasNoAccountError,
 )
+from app.models.ledger import LedgerTransaction
 from app.models.mam import MamAccount
 from app.models.movement import Movement
 from app.repositories.mam_repository import MamRepository
@@ -318,6 +320,86 @@ class MamCapitalService:
         logger.info("MAM: retiro %s de %s en %s (fee cobrado=%s, deal=%s)",
                     mv_id, efectivo, acc.mt5_login, fee, movement.mt5_deal_id)
         return movement
+
+    # ══════════════════════════════════════════════════════════════════
+    # Regularizacion contable
+    # ══════════════════════════════════════════════════════════════════
+
+    async def regularize(self, *, mt5_login: str, apply: bool = False, caller=None) -> dict:
+        """Asienta el capital que entro a la cuenta SIN pasar por nuestros rails.
+
+        Una cuenta puede tener saldo que nuestro libro no conoce: el broker la
+        acredito directo, o venia con saldo de antes de la integracion. El motor
+        lo marca con un tipo EXTERNAL_*, distinto de los DEPOSIT/WITHDRAWAL que
+        originamos nosotros.
+
+        NO mueve un peso en MT5. Solo escribe los asientos que faltaban, uno por
+        transaccion del motor, con la key derivada de su id — asi correrlo dos
+        veces no duplica nada.
+
+        Ojo con lo que NO entra: el P&L del trading no es un movimiento de caja
+        (el dinero no entro ni salio, cambio de valor) y no lleva asiento. Por
+        eso la diferencia entre el saldo MT5 y lo asentado no tiene por que ser
+        cero, y perseguir esa diferencia seria inventar plata.
+        """
+        acc, trader_id = await self._resolve(mt5_login, caller=caller)
+
+        data = await self._client.list_balance_transactions(account_login=acc.mt5_login)
+        filas = data.get("items") if isinstance(data, dict) else data
+        movimientos = []
+        for t in (filas or []):
+            tipo = str(t.get("transaction_type") or "").upper()
+            # Solo el capital que no originamos nosotros. Los DEPOSIT/WITHDRAWAL
+            # ya estan asentados, y los PF_CREDIT los concilia /perf-fee.
+            if not tipo.startswith("EXTERNAL"):
+                continue
+            if str(t.get("status") or "").upper() != "EXECUTED":
+                continue
+            monto = _dec(t.get("amount"))
+            pid = t.get("id")
+            if monto is None or not monto or pid is None:
+                continue
+            movimientos.append({
+                "provider_tx_id": int(pid),
+                "transaction_type": tipo,
+                "amount": abs(monto).quantize(_CENTS, rounding=ROUND_DOWN),
+                "incoming": monto > 0,
+                "executed_at": t.get("executed_at"),
+            })
+
+        asentados, ya_estaban, total = [], 0, Decimal("0")
+        for mv in movimientos:
+            key = f"regularize:mam:{mv['provider_tx_id']}"
+            previo = (await self.db.execute(
+                select(LedgerTransaction).where(
+                    LedgerTransaction.idempotency_key == key))).scalar_one_or_none()
+            if previo is not None and previo.status == "POSTED":
+                ya_estaban += 1
+                mv["ledger_tx_id"] = previo.id
+                continue
+            mv["ledger_tx_id"] = None
+            total += mv["amount"] if mv["incoming"] else -mv["amount"]
+            if apply:
+                mv["ledger_tx_id"] = await self.ledger.post_capital_regularization(
+                    trader_id=trader_id, amount=mv["amount"], idempotency_key=key,
+                    description=(f"Regularizacion {mv['transaction_type']} "
+                                 f"#{mv['provider_tx_id']} de {acc.mt5_login}"),
+                    incoming=mv["incoming"])
+                asentados.append(mv)
+        if apply and asentados:
+            await self.db.commit()
+            logger.info("MAM: regularizados %s movimientos de %s por %s",
+                        len(asentados), acc.mt5_login, total)
+
+        return {
+            "mt5_login": acc.mt5_login,
+            "applied": apply,
+            "found": len(movimientos),
+            "already_posted": ya_estaban,
+            "posted": len(asentados),
+            "net_amount": total,
+            "items": movimientos,
+        }
 
     # ══════════════════════════════════════════════════════════════════
     # Consulta

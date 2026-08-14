@@ -108,6 +108,19 @@ class MamRepository:
             select(MamLeaderProfile).where(MamLeaderProfile.account_id == account_id))
         return r.scalar_one_or_none()
 
+    async def account_ids_with_profile(self, account_ids: list[str]) -> set[str]:
+        """Cuales de esas cuentas tienen perfil de leader, en UNA consulta.
+
+        El listado no puede preguntar de a una: seria N+1, y con el default en
+        False la respuesta salia mintiendo en vez de salir lenta.
+        """
+        if not account_ids:
+            return set()
+        r = await self.db.execute(
+            select(MamLeaderProfile.account_id).where(
+                MamLeaderProfile.account_id.in_(account_ids)))
+        return set(r.scalars().all())
+
     async def get_profile_by_login(self, account_login: str) -> Optional[MamLeaderProfile]:
         r = await self.db.execute(
             select(MamLeaderProfile).where(
