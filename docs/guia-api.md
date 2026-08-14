@@ -1,7 +1,7 @@
 # Guía completa de la API
 
 Todo lo que hace este servicio, en un solo documento: qué es una cuenta MAM, el
-flujo que hay que seguir, y la referencia de los **68 endpoints**.
+flujo que hay que seguir, y la referencia de las **69 operaciones**.
 
 - **Base URL:** `https://transactionalapi.branchtech.co/mam/`
 - **Swagger:** https://transactionalapi.branchtech.co/mam/docs
@@ -363,12 +363,38 @@ Las keys se emiten desde `POST /admin/api-users` y se muestran **una sola vez**
 
 | Rol | Alcance |
 |---|---|
-| `ADMIN` | Todo. Único que puede fondear la cuenta maestra y gestionar api_users. |
-| `USER` | Todo lo demás. Solo ve **sus propios** clientes y las cuentas de esos clientes. |
+| `ADMIN` | Todo. Mete plata al fondo, ajusta asientos y emite las keys. |
+| `USER` | Toda la operación del negocio, viendo **solo sus propios** clientes. |
 
-Lo exclusivo de ADMIN es corto y deliberado: **fondear la maestra** y **gestionar
-api_users/keys**. Lo segundo, porque abrirlo dejaría que cualquier USER se creara
-un ADMIN y fondeara — rompiendo justo la primera restricción.
+Un `USER` hace el trabajo completo: clientes, cuentas, estrategias, suscripciones,
+depósitos y retiros de cuentas de clientes, performance fee, bajas, rendimiento y
+reportes. Lo único que no puede es **meter plata nueva al fondo** ni **repartir
+identidades**.
+
+**Los nueve endpoints exclusivos de ADMIN**, y son solo tres ideas:
+
+```
+Fondear la maestra          POST /master-account/funding
+                            POST /master-account/funding/{id}/verify
+                            POST /master-account/funding/{id}/resend
+
+Ajustar el libro            POST /mam/accounts/{login}/regularize-capital
+
+Emitir identidades          POST   /admin/api-users
+                            GET    /admin/api-users
+                            PATCH  /admin/api-users/{id}
+                            DELETE /admin/api-users/{id}
+                            POST   /admin/api-users/{id}/regenerate-key
+```
+
+El tercer grupo **no es una restricción aparte: es la cerradura de las otras dos.**
+Si un USER pudiera crear api_users, se crearía uno con rol ADMIN, pediría su key y
+con esa key fondearía. Lo mismo con el PATCH (se cambiaría el rol a sí mismo) y
+con `regenerate-key` (emitiría una key nueva para un ADMIN ajeno). Abrir la
+gestión de identidades equivale a abrir todo lo demás.
+
+`GET /master-account` (consultar el saldo) **no** es ADMIN: un socio necesita
+saber si hay fondos antes de intentar un depósito.
 
 Cuando un `USER` consulta un cliente ajeno recibe **`404`, no `403`**: distinguir
 los dos casos permitiría enumerar la cartera de otro socio. Vale para `/traders`,
@@ -431,9 +457,54 @@ El sentido cuesta al principio: **depositarle a un cliente baja** la cuenta
 maestra (`credit`) y **retirarle la sube** (`debit`) — el dinero sale del fondo
 común y vuelve a él.
 
-**El P&L del trading no es un asiento.** No es un movimiento de caja: el dinero
-no entró ni salió del fondo, cambió de valor. Se ve en las métricas en vivo de
-MT5 y en los endpoints de rendimiento.
+### El P&L del trading NO lleva asiento
+
+Esta es la confusión más cara de la contabilidad del fondo, así que va con
+ejemplo. Supongamos una cuenta a la que le depositaste $1.000 y hoy tiene $483,88
+porque perdió operando:
+
+| | Dice |
+|---|---|
+| Saldo MT5 | 483,88 — **cuánto vale hoy** |
+| `TRADER_HOLDINGS` del cliente | 1.000,00 — **cuánto se le colocó** |
+
+**Que no coincidan es lo correcto.** El libro contable registra *movimientos de
+caja*: dinero que entró o salió del fondo. El P&L no es eso — el dinero no se
+movió a ningún lado, cambió de valor.
+
+Si asentaras esa diferencia de −516,12, tu libro estaría inventando una salida de
+caja que nunca ocurrió. Y al revés con las ganancias: una cuenta que ganó $292,80
+copiando no recibió $292,80 de nadie.
+
+Para ver las dos cifras juntas está `GET /mam/traders/{ref}/overview`, que cruza
+el capital colocado según el libro contra el equity en vivo de MT5.
+
+### Capital que entró sin pasar por acá
+
+Distinto del caso anterior, y este **sí** lleva asiento. Una cuenta puede tener
+saldo que el libro no conoce: el broker la acreditó directo en MT5, o venía con
+saldo de antes de la integración. El motor lo marca con un tipo `EXTERNAL_*`,
+distinto de los `DEPOSIT`/`WITHDRAWAL` que originamos nosotros.
+
+```bash
+# 1. Simular — no escribe nada
+curl -X POST "$BASE/api/v1/mam/accounts/7918234/regularize-capital?apply=false" \
+  -H "X-API-Key: $ADMIN_KEY"
+
+# 2. Si el detalle cuadra, aplicar
+curl -X POST "$BASE/api/v1/mam/accounts/7918234/regularize-capital?apply=true" \
+  -H "X-API-Key: $ADMIN_KEY"
+```
+
+⚠️ **No mueve un peso en MT5.** Solo escribe el asiento que faltaba. Para mover
+dinero de verdad está `/deposits` — usarlo acá depositaría el importe **otra vez**
+y duplicaría el saldo.
+
+El monto **no es un parámetro**: se lee del motor. No se puede inventar una cifra,
+solo asentar lo que el motor dice que entró. Es ADMIN e idempotente por el id de
+la transacción del motor.
+
+La cuenta necesita **cliente asignado**: el capital se asienta contra un cliente.
 
 ### Idempotencia
 
@@ -637,6 +708,7 @@ indique. Todos exigen `X-API-Key`.
 | POST | `/mam/accounts/{mt5_login}/deposits` | Maestra → cuenta del cliente. Idempotente |
 | POST | `/mam/accounts/{mt5_login}/withdrawals` | Cuenta → maestra. **Cobra el fee vencido primero** |
 | GET | `/mam/accounts/{mt5_login}/balance-transactions` | Historial **según el motor** (para conciliar) |
+| POST | `/mam/accounts/{mt5_login}/regularize-capital` | **ADMIN.** Asentar capital que entró sin pasar por acá. No toca MT5 |
 
 ### MAM · Performance fee
 
@@ -704,7 +776,7 @@ indique. Todos exigen `X-API-Key`.
 
 ---
 
-## 12. Las diez cosas que más se rompen
+## 12. Las doce cosas que más se rompen
 
 1. **Crear una cuenta dos veces.** `POST /mam/accounts` no es idempotente.
    Consultá antes de reintentar.
@@ -724,3 +796,8 @@ indique. Todos exigen `X-API-Key`.
 9. **Usar `balance` en vez de `withdrawable`** para habilitar un retiro de la
    cuenta PAYMENT. Incluye crédito MT5, que no se puede retirar.
 10. **Repartir comisiones con `verify` en `matches: false`.** El total no cierra.
+11. **Querer que el saldo MT5 coincida con el holding contable.** No tienen por
+    qué: uno dice cuánto vale hoy, el otro cuánto se colocó. La diferencia es
+    P&L, y asentarla sería inventar movimientos de caja.
+12. **Usar `/deposits` para regularizar un saldo preexistente.** Deposita el
+    dinero de verdad y duplica el saldo. Para eso está `/regularize-capital`.
