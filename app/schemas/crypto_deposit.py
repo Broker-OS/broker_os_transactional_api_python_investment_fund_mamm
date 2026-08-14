@@ -1,9 +1,11 @@
-"""Schemas de depositos on-chain (USDC sobre una cadena EVM)."""
+"""Schemas de depositos on-chain (token ERC-20 sobre una cadena EVM)."""
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.core.config import settings
 
 
 class CryptoDepositRequest(BaseModel):
@@ -12,7 +14,12 @@ class CryptoDepositRequest(BaseModel):
         description=("Hash de la transacción on-chain (`0x` + 64 hexadecimales). "
                      "Se ignoran los espacios: pegarlo cortado en varias líneas funciona."))
     chain_id: int = Field(
-        gt=0, description="Id de la cadena EVM. Debe coincidir con la configurada.")
+        gt=0,
+        description=(
+            f"Id de la cadena EVM. **Este servicio está configurado en la "
+            f"`{settings.EVM_CHAIN_ID}`** ({settings.EVM_NETWORK_NAME}); cualquier otro "
+            f"valor se rechaza con `CHAIN_MISMATCH`. Una transacción de otra red no "
+            f"existe para el nodo configurado."))
     value: Decimal = Field(
         gt=0,
         description=("Monto que declarás haber transferido. Se **verifica contra la cadena**: "
@@ -29,10 +36,14 @@ class CryptoDepositRequest(BaseModel):
         """
         return "".join(v.split()) if isinstance(v, str) else v
 
+    # El ejemplo sale de la config, no de una constante: cuando el servicio
+    # cambia de red, el Swagger acompaña solo. Un ejemplo con la cadena
+    # equivocada hace que la primera prueba de cualquiera falle con
+    # CHAIN_MISMATCH, y el error apunta a quien copio el ejemplo.
     model_config = ConfigDict(json_schema_extra={
         "example": {
             "tx_hash": "0x5f2c1b8a9d3e4f6071829304a5b6c7d8e9f0a1b2c3d4e5f60718293a4b5c6d7e8",
-            "chain_id": 97,
+            "chain_id": settings.EVM_CHAIN_ID,
             "value": "100.00",
         }
     })
@@ -59,7 +70,7 @@ class CryptoDepositRead(BaseModel):
         default=None,
         description=("Asiento contable que acreditó la cuenta maestra con este depósito "
                      "(`MASTER_ACCOUNT_FUNDING`). Nulo en los rechazados. Se consulta en "
-                     "`GET /reports/ledger/transactions`."))
+                     "`GET /ledger/transactions`."))
     notified_admins: int = Field(description="Cuántos admins recibieron el aviso.")
     notified_at: Optional[datetime] = None
     created_at: datetime
