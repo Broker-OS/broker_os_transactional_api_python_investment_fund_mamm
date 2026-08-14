@@ -335,10 +335,74 @@ curl -X POST "$BASE/api/v1/crypto-deposits" \
 ```
 
 No se cree nada de lo declarado: **lo único que vale es lo que dice la cadena.**
-Se verifica, en orden, que el `chain_id` sea el configurado, que la transacción
-exista y esté minada, que **no haya revertido**, que tenga confirmaciones
-suficientes, que sus logs contengan una transferencia del token configurado
-**hacia nuestra address receptora**, y que el monto coincida.
+El servicio va al nodo RPC, lee el *receipt* de esa transacción y decodifica sus
+logs. El `value` que mandás no acredita nada por sí solo — se compara contra lo
+que efectivamente se transfirió.
+
+**Las seis validaciones, en orden.** Cualquiera que falle rechaza el comprobante:
+
+| # | Se verifica | Si falla |
+|---|---|---|
+| 1 | El `tx_hash` tiene formato válido | `TX_HASH_INVALID` |
+| 2 | El `chain_id` es el configurado | `CHAIN_MISMATCH` |
+| 3 | La transacción existe y está minada | `TX_NOT_FOUND` |
+| 4 | **No revirtió** en la cadena | `TX_FAILED_ON_CHAIN` |
+| 5 | Tiene confirmaciones suficientes | `TX_NOT_CONFIRMED` |
+| 6 | Sus logs traen una transferencia **del token configurado** y **hacia nuestra address receptora** | `TRANSFER_NOT_FOUND` |
+| 7 | El monto declarado coincide con el on-chain | `AMOUNT_MISMATCH` |
+
+Los pasos 4 y 5 son los que más se subestiman. Una transacción puede existir en
+la cadena y haber **revertido** — el hash es real, el dinero nunca se movió. Y
+sin confirmaciones suficientes, un *reorg* de la cadena puede borrar una
+transferencia que ya diste por buena.
+
+El paso 6 es el que evita el fraude obvio: alguien podría mandarte el hash de una
+transferencia real… hacia **otra** address, o de **otro** token. Se comprueba que
+el destino sea tuyo y que el contrato sea el que configuraste.
+
+**Un hash se acredita una sola vez.** Reenviarlo devuelve
+`DEPOSIT_ALREADY_REGISTERED`. Un intento **rechazado** sí se puede reintentar —
+por ejemplo si faltaban confirmaciones y ahora ya las tiene.
+
+**Los rechazos quedan registrados** para auditoría, con su motivo. Se consultan
+con `GET /crypto-deposits?rejection_code=AMOUNT_MISMATCH`. No confundir ese filtro
+con `status`, que solo distingue `CONFIRMED` de `REJECTED`.
+
+Si todo pasa, en la **misma transacción de base de datos** se registra el
+depósito, se acredita la cuenta maestra con un asiento `MASTER_ACCOUNT_FUNDING` y
+se avisa por email a los ADMIN. No puede quedar un depósito acreditado sin
+asiento, ni saldo en la maestra sin el comprobante que lo justifica.
+
+#### Configuración que esto necesita
+
+Vive en el `.env` del servidor. **Dos de las cinco arrancan vacías** y sin ellas
+el endpoint responde `EVM_NOT_CONFIGURED`:
+
+| Variable | Default | ¿Hay que definirla? |
+|---|---|---|
+| `EVM_RPC_URL` | nodo de BSC testnet | No, si usás esa red |
+| `EVM_CHAIN_ID` | `97` (BSC testnet) | No, si usás esa red |
+| `EVM_TOKEN_DECIMALS` | `18` | Solo si tu token no usa 18 |
+| `EVM_USDC_CONTRACT` | **vacío** | **Sí** |
+| `EVM_RECEIVING_ADDRESS` | **vacío** | **Sí** |
+
+⚠️ **`EVM_TOKEN_DECIMALS` es la trampa más cara.** En BSC los tokens suelen tener
+18 decimales; el USDC de Ethereum tiene 6. Si el valor no coincide con el
+contrato, **los montos se leen mal por 12 órdenes de magnitud** — un depósito de
+100 se lee como 100.000.000.000.000 o como 0,0000001, y ninguna validación lo
+detecta porque el número es internamente consistente.
+
+Verificalo contra el contrato antes de la primera prueba: `decimals()` es una
+llamada de solo lectura, y `scripts/evm_token_info.py` la hace por vos.
+
+> El `readiness` **no cubre EVM**: si estas variables faltan, nada te avisa hasta
+> que alguien presente un comprobante. Revisalas a mano después de cada deploy que
+> toque el `.env`.
+
+**Nota sobre `eth_getLogs`.** La verificación usa `eth_getTransactionReceipt`, no
+`eth_getLogs`. Cualquier nodo estándar sirve; no necesitás uno con soporte de
+historial. Ese solo hace falta si querés *buscar* transferencias pasadas, que es
+una tarea de exploración, no del flujo.
 
 ### Paso 5 · Depositar en la cuenta del cliente
 
@@ -590,6 +654,11 @@ Error:
 | `PAYMENT_ACCOUNT_UNAVAILABLE` | El leader no tiene cuenta PAYMENT válida |
 | `PROVIDER_UNCERTAIN_RESULT` | Timeout: no se sabe si el dinero se movió |
 | `DEPOSIT_ALREADY_REGISTERED` | Ese hash on-chain ya se acreditó |
+| `TX_FAILED_ON_CHAIN` | La transacción existe pero **revirtió**: el dinero no se movió |
+| `TX_NOT_CONFIRMED` | Faltan confirmaciones. Reintentable más tarde |
+| `TRANSFER_NOT_FOUND` | Ninguna transferencia del token configurado hacia nuestra address |
+| `AMOUNT_MISMATCH` | El monto declarado no coincide con el on-chain |
+| `EVM_NOT_CONFIGURED` | Falta `EVM_USDC_CONTRACT` o `EVM_RECEIVING_ADDRESS` en el server |
 
 ---
 
@@ -927,7 +996,7 @@ indique. Todos exigen `X-API-Key`.
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| POST | `/crypto-deposits` | Presentar comprobante USDC y verificarlo en la cadena |
+| POST | `/crypto-deposits` | Presentar comprobante ERC-20 y verificarlo contra la cadena |
 | GET | `/crypto-deposits` | Historial, incluidos los rechazados con su motivo |
 
 ### Fuera de `/api/v1`
@@ -939,7 +1008,7 @@ indique. Todos exigen `X-API-Key`.
 
 ---
 
-## 12. Las trece cosas que más se rompen
+## 12. Las catorce cosas que más se rompen
 
 1. **Crear una cuenta dos veces.** `POST /mam/accounts` no es idempotente.
    Consultá antes de reintentar.
@@ -964,7 +1033,10 @@ indique. Todos exigen `X-API-Key`.
     P&L, y asentarla sería inventar movimientos de caja.
 12. **Usar `/deposits` para regularizar un saldo preexistente.** Deposita el
     dinero de verdad y duplica el saldo. Para eso está `/regularize-capital`.
-13. **Equivocarse en `rights_profile` al crear la cuenta.** No se puede corregir
+13. **Cargar mal `EVM_TOKEN_DECIMALS`.** Ninguna validación lo detecta: el
+    número es internamente consistente y los montos salen mal por 12 órdenes de
+    magnitud. Verificá `decimals()` contra el contrato antes de la primera prueba.
+14. **Equivocarse en `rights_profile` al crear la cuenta.** No se puede corregir
     después por API: es un procedimiento administrativo del broker. Y si querés
     que el cliente no opere por su cuenta, `TRADING_DISABLED` **no** le impide
     recibir las operaciones copiadas — es justo la combinación que suele buscarse.
