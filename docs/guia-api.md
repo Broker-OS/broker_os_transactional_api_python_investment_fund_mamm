@@ -726,6 +726,20 @@ la transacción del motor.
 
 La cuenta necesita **cliente asignado**: el capital se asienta contra un cliente.
 
+**Cuenta importada que ya había operado.** Si traés una cuenta con
+`/mam/accounts/import`, todo su historial vive del lado del motor y nada del
+tuyo — incluidos los depósitos que el motor clasifica como propios. Para esos,
+agregá `include_internal=true`:
+
+```bash
+curl -X POST "$BASE/api/v1/mam/accounts/7918555/regularize-capital?apply=true&include_internal=true"   -H "X-API-Key: $ADMIN_KEY"
+```
+
+Va **apagado por defecto** a propósito: en una cuenta normal esos asientos ya
+existen —los creó el flujo de depósito— y rehacerlos contaría el mismo dinero dos
+veces. Por eso se rechaza con `409` si la cuenta tiene **cualquier** movimiento
+registrado de este lado. Sin movimientos locales no hay nada que duplicar.
+
 ### Idempotencia
 
 Todas las operaciones financieras aceptan `idempotency_key`. **Derivala del id de
@@ -940,7 +954,7 @@ indique. Todos exigen `X-API-Key`.
 | POST | `/mam/accounts/{mt5_login}/deposits` | Maestra → cuenta del cliente. Idempotente |
 | POST | `/mam/accounts/{mt5_login}/withdrawals` | Cuenta → maestra. **Cobra el fee vencido primero** |
 | GET | `/mam/accounts/{mt5_login}/balance-transactions` | Historial **según el motor** (para conciliar) |
-| POST | `/mam/accounts/{mt5_login}/regularize-capital` | **ADMIN.** Asentar capital que entró sin pasar por acá. No toca MT5 |
+| POST | `/mam/accounts/{mt5_login}/regularize-capital` | **ADMIN.** Asentar capital que entró sin pasar por acá, y reconstruir el libro de una cuenta importada. No toca MT5 |
 
 ### MAM · Performance fee
 
