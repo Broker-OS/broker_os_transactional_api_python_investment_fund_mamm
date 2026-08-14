@@ -379,6 +379,11 @@ Los reportes **agregados** (`/ledger/accounts`, `/reports/balances`,
 `/reports/daily`, `/master-account`) siguen siendo globales: son el estado del
 fondo, no de una cartera.
 
+Un caso que sorprende y es deliberado: los **pagos de fee sin atribuir** —cuya
+cuenta pagadora no está en esta base, así que no se sabe de qué cliente son— **no
+le aparecen a ningún USER**. No son de nadie, y asignárselos a un socio sería
+adivinar. Quedan a la vista del ADMIN y en `/mam/ops/pending`.
+
 ### Envelope de respuesta
 
 Éxito:
@@ -639,7 +644,7 @@ indique. Todos exigen `X-API-Key`.
 |---|---|---|
 | POST | `/mam/perf-fee/reconcile` | Traer el detalle por cliente y asentarlo. Idempotente |
 | GET | `/mam/perf-fee/verify` | ¿Cuadra el detalle contra lo acreditado? |
-| GET | `/mam/perf-fee/payments` | Pagos conciliados. **Base del cálculo de comisiones** |
+| GET | `/mam/perf-fee/payments` | Pagos conciliados. **Base del cálculo de comisiones**. Scopeado |
 | GET | `/mam/webhook-events` | Eventos recibidos del motor |
 | POST | `/mam/webhook-events/retry` | Cron: reintentar los sin aplicar |
 
@@ -649,7 +654,7 @@ indique. Todos exigen `X-API-Key`.
 |---|---|---|
 | GET | `/mam/accounts/{mt5_login}/deletion-impact` | **Consultar antes de dar de baja** |
 | POST | `/mam/account-deletions` | Crear la baja (asincrónica) |
-| GET | `/mam/account-deletions` | Listar |
+| GET | `/mam/account-deletions` | Listar. Scopeado por dueño de la cuenta |
 | GET | `/mam/account-deletions/{operation_id}` | Estado |
 | POST | `/mam/account-deletions/{operation_id}/retry` | Reintentar una `PARTIAL` |
 | POST | `/mam/account-deletions/sync` | Cron: refrescar las no finales |

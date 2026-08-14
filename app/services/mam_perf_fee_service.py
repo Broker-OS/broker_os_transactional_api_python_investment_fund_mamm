@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import LeaderProfileNotFoundError
 from app.models.mam import MamAccount, MamPerfFeePayment
+from app.models.trader import Trader
 from app.repositories.mam_repository import MamRepository
 from app.services.ledger_service import LedgerService
 from app.services.mam_client import get_mam_client
@@ -260,7 +261,7 @@ class MamPerfFeeService:
     async def list_payments(
         self, *, master_login: Optional[str] = None, investor_login: Optional[str] = None,
         run_id: Optional[int] = None, only_unposted: bool = False,
-        page: int = 1, limit: int = 50,
+        owner_api_user_id: Optional[str] = None, page: int = 1, limit: int = 50,
     ) -> tuple[list[MamPerfFeePayment], int, Decimal]:
         """Pagos ya conciliados, desde NUESTRA base. Devuelve tambien el total."""
         filtros = []
@@ -274,6 +275,14 @@ class MamPerfFeeService:
             # Lo que hay que resolver a mano: cobrado pero sin asiento.
             filtros.append(MamPerfFeePayment.ledger_tx_id.is_(None))
             filtros.append(MamPerfFeePayment.status == _EXECUTED)
+
+        # Scoping por dueño. Un pago SIN atribuir no tiene trader_id, asi que no
+        # es de ningun socio y no le aparece a ninguno: podria ser de cualquiera,
+        # y mostrarselo a uno seria adivinar. Quedan a la vista del ADMIN, que no
+        # lleva filtro, y en /mam/ops/pending.
+        if owner_api_user_id:
+            filtros.append(MamPerfFeePayment.trader_id.in_(
+                select(Trader.id).where(Trader.owner_api_user_id == owner_api_user_id)))
 
         total = (await self.db.execute(
             select(func.count()).select_from(MamPerfFeePayment).where(*filtros))).scalar_one()

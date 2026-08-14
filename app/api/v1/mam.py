@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin, require_api_key
 from app.db.database import get_db
-from app.models.api_user import ApiUser
+from app.models.api_user import ROLE_ADMIN, ApiUser
 from app.schemas.common import APIResponse
 from app.schemas.mam import (
     AllocationCreateRequest,
@@ -71,6 +71,11 @@ _FEE = ["8. MAM · Performance fee"]
 _BAJAS = ["9. MAM · Baja de cuentas"]
 _ANALYTICS = ["10. MAM · Rendimiento"]
 _OPS = ["11. Operación (incidentes)"]
+
+
+def _owner_scope(caller: ApiUser) -> Optional[str]:
+    """None si es ADMIN (ve todo); su propio id si es USER (solo lo suyo)."""
+    return None if caller.role == ROLE_ADMIN else caller.id
 
 
 async def _read(svc: MamAccountService, acc) -> dict:
@@ -748,7 +753,11 @@ async def verify_perf_fee(
                 "acreditación.\n\n"
                 "`only_unposted=true` muestra lo que hay que resolver a mano: cobrado por el "
                 "motor pero sin asiento, casi siempre porque la cuenta cliente no está "
-                "importada."
+                "importada.\n\n"
+                "Un **USER** ve solo los pagos de sus clientes. Los pagos **sin atribuir** "
+                "no son de nadie —no se sabe de qué cliente es la cuenta que los pagó— así "
+                "que **no le aparecen a ningún USER**: solo al ADMIN, y en "
+                "`/mam/ops/pending`. Mostrárselos a un socio sería adivinar."
             ))
 async def list_perf_fee_payments(
     master_login: Optional[str] = Query(None),
@@ -760,7 +769,8 @@ async def list_perf_fee_payments(
 ):
     rows, total, suma = await MamPerfFeeService(db).list_payments(
         master_login=master_login, investor_login=investor_login, run_id=run_id,
-        only_unposted=only_unposted, page=page, limit=limit)
+        only_unposted=only_unposted, owner_api_user_id=_owner_scope(caller),
+        page=page, limit=limit)
     payload = PerfFeePaymentListResponse(
         total=total, executed_total=suma, page=page, limit=limit,
         pages=ceil(total / limit) if (total and limit) else 0,
@@ -858,14 +868,19 @@ async def request_deletion(body: DeletionRequest, db: AsyncSession = Depends(get
 
 
 @router.get("/mam/account-deletions", response_model=APIResponse, tags=_BAJAS,
-            summary="Listar bajas")
+            summary="Listar bajas",
+            description=("Un **USER** ve las bajas de las cuentas de sus clientes, sin "
+                         "importar quién las pidió: si un ADMIN da de baja la cuenta de un "
+                         "cliente, ese socio tiene que verla — es su cliente el que se "
+                         "queda sin cuenta."))
 async def list_deletions(
     deletion_status: Optional[str] = Query(None, alias="status"),
     page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db), caller: ApiUser = Depends(require_api_key),
 ):
     rows, total = await MamDeletionService(db).list_operations(
-        status=deletion_status, page=page, limit=limit)
+        status=deletion_status, owner_api_user_id=_owner_scope(caller),
+        page=page, limit=limit)
     payload = DeletionOperationListResponse(
         total=total, page=page, limit=limit,
         pages=ceil(total / limit) if (total and limit) else 0,

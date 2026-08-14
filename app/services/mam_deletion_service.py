@@ -37,7 +37,8 @@ from app.core.exceptions import (
     DeletionOperationNotFoundError,
 )
 from app.models._helpers import now_utc
-from app.models.mam import ACCOUNT_DELETED, MamDeletionOperation
+from app.models.mam import ACCOUNT_DELETED, MamAccount, MamDeletionOperation
+from app.models.trader import Trader
 from app.repositories.mam_repository import MamRepository
 from app.services.mam_account_service import MamAccountService
 from app.services.mam_client import get_mam_client
@@ -250,8 +251,18 @@ class MamDeletionService:
         return {"reviewed": len(pendientes), "changed": cambiadas}
 
     async def list_operations(self, *, status: Optional[str] = None,
+                              owner_api_user_id: Optional[str] = None,
                               page: int = 1, limit: int = 50):
         filtros = [MamDeletionOperation.status == status] if status else []
+        # Scoping por dueño de la cuenta dada de baja, no por quien pidio la
+        # baja: si un ADMIN da de baja la cuenta de un cliente, ese socio tiene
+        # que verla igual — es su cliente el que se queda sin cuenta.
+        if owner_api_user_id:
+            filtros.append(MamDeletionOperation.target_login.in_(
+                select(MamAccount.mt5_login).where(
+                    MamAccount.trader_id.in_(
+                        select(Trader.id).where(
+                            Trader.owner_api_user_id == owner_api_user_id)))))
         total = (await self.db.execute(
             select(func.count()).select_from(MamDeletionOperation).where(*filtros))).scalar_one()
         filas = (await self.db.execute(
