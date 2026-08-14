@@ -134,6 +134,13 @@ en cada suscripción.
 El alta es puramente local. El cliente todavía no existe del lado del proveedor
 —empieza a existir cuando se le crea una cuenta MT5.
 
+**Un `trader` = una persona o entidad real.** Un mismo cliente puede tener varias
+cuentas, e incluso ser estrategia con una y seguir a otra con la otra — es válido
+y funciona. Pero el libro contable atribuye capital **por cliente**: si metés la
+estrategia y sus inversores bajo el mismo `trader`, el holding contable los suma
+y después no vas a poder responder *«¿cuánto puso este inversor?»*. El cupo
+`max_active_leaders` también es por cliente, así que lo comparten.
+
 ### Paso 2 · Crear la cuenta MT5
 
 ```bash
@@ -148,6 +155,25 @@ curl -X POST "$BASE/api/v1/mam/accounts" \
 
 ⚠️ **No es idempotente.** Ante un timeout, consultá por el login **antes** de
 reintentar: repetir a ciegas crea una segunda cuenta real en MT5.
+
+#### ⚠️ `can_be_leader` decide el grupo MT5, y eso es irreversible
+
+El campo parece un permiso ajustable. No lo es: **elige el grupo MT5 en el que
+nace la cuenta, y el grupo no se puede mover después.**
+
+| Nace con | Grupo |
+|---|---|
+| `can_be_leader: true` | `…\MASTER` |
+| solo `can_be_follower` | `…\INVESTOR` |
+
+El error típico: crear la cuenta con `can_be_leader: false` y después llamar a
+`POST /mam/leaders`. Ese endpoint **habilita `can_be_leader` automáticamente**,
+así que parece que funcionó — pero habilitó la *capacidad*, no pudo mover el
+*grupo*. Te queda una estrategia viviendo en el grupo de inversores.
+
+**Decidí antes de crear.** Si la cuenta va a ser estrategia, nace con
+`can_be_leader: true`. Corregirlo después es un procedimiento administrativo del
+broker sobre el servidor MT5, no una llamada a esta API.
 
 **`external_reference` es obligatorio acá.** Una cuenta sin cliente no puede
 mover capital —el libro contable asienta por cliente— y ningún `USER` la ve. Si
@@ -245,8 +271,41 @@ antes de crear el perfil: son dos llamadas al motor, un solo paso desde afuera.
 `performance_fee_rate` va **entre 0 y 1**. `0.20` es 20 %. Mandar `20` sería
 2000 % — el schema lo rechaza, pero conviene tenerlo presente.
 
-Dejá `payment_account_login` vacío y el motor crea la cuenta PAYMENT solo.
-**Conservá el login que devuelve.**
+#### Las dos cuentas del leader: operativa y PAYMENT
+
+La respuesta trae **dos logins distintos** y se confunden seguido:
+
+| Campo | Qué es |
+|---|---|
+| `account_login` | La cuenta **operativa**: tiene el capital y abre las operaciones que los clientes copian. |
+| `payment_account_login` | Una cuenta MT5 **aparte** que solo recibe los performance fees de esta estrategia. No opera ni copia. |
+
+**Por qué separadas:** si los fees cayeran en la cuenta operativa, se mezclarían
+con el capital de trading, y como las métricas de rendimiento salen del balance,
+la estrategia aparecería ganando dinero que no ganó operando — lo ganó cobrándole
+a sus propios seguidores.
+
+Dejá `payment_account_login` vacío y el motor la crea solo. **Conservá el login:
+no se puede reasignar** — el `PATCH` del perfil no la cambia.
+
+Lo contraintuitivo: **para consultar o retirar de la PAYMENT usás el login
+operativo**, no el de la PAYMENT.
+
+```
+GET  /mam/leaders/{account_login}/payment-account
+POST /mam/leaders/{account_login}/payment-account/withdraw
+```
+
+Y la cuenta PAYMENT **no aparece** en `GET /mam/accounts`: no es una cuenta MAM,
+es un campo del perfil. Tampoco le deposites — hay un error específico que lo
+impide, porque ensuciaría la conciliación de fees.
+
+#### La estrategia necesita capital propio
+
+Obvio pero se olvida: la cuenta operativa **abre las operaciones reales** que los
+demás copian. Sin saldo en MT5 no opera, y sin operaciones no hay nada que
+copiar. Fondeala como a cualquier otra, con
+`POST /mam/accounts/{login}/deposits`.
 
 ### Paso 4 · Fondear la cuenta maestra
 
@@ -350,6 +409,39 @@ conoce.
 Siempre **mayor que 0**; `0` o negativo da 422. Un multiplicador mayor que 1
 aumenta exposición y riesgo — **no es un porcentaje**.
 
+**`EQUITY` con `mode_parameter: 1` en concreto.** Si el leader tiene $5.000 y el
+cliente $1.500, la proporción es `1.500 / 5.000 = 0,3`:
+
+```
+el leader abre  1,00 lote   →   el cliente abre  0,30 lotes
+el leader abre  0,50 lotes  →   el cliente abre  0,15 lotes
+```
+
+`mode_parameter` multiplica **esa proporción**: con `0.5` el cliente abriría 0,15
+en vez de 0,30; con `2`, 0,60. Es la opción sensata para la mayoría de los casos:
+cada cliente arriesga en proporción a lo que tiene.
+
+#### `equity_stop`: la red de seguridad del cliente
+
+Es el **equity mínimo** de la cuenta que copia. Si cae hasta ese valor, la
+suscripción se detiene y **sus posiciones copiadas se cierran**.
+
+Elegirlo mal es de los errores más caros, porque se nota tarde:
+
+```
+cliente con $1.500  +  equity_stop 1.000
+   → tolera perder $500 (el 33 % de su capital) y queda afuera
+```
+
+Con una estrategia apalancada, un stop así se puede gatillar en días. Y si lo
+ponés **igual al depósito** —cliente con $1.000 y `equity_stop: 1000`— se dispara
+prácticamente de entrada.
+
+Regla práctica: dejalo bastante por debajo del capital del cliente, en el punto
+donde de verdad querrías sacarlo del mercado. `null` lo desactiva, pero es la
+única protección automática que tiene — desactivarlo es una decisión, no un
+default.
+
 ---
 
 ## 4. Dar de baja
@@ -403,6 +495,20 @@ Toda la API v1 exige el header **`X-API-Key`**:
 
 Las keys se emiten desde `POST /admin/api-users` y se muestran **una sola vez**
 (en base solo queda el hash).
+
+### Dos entidades que se confunden: `api_user` y `trader`
+
+| | Qué es | ¿Autentica? | ¿Tiene cuentas MT5? |
+|---|---|---|---|
+| **`api_user`** | Quien **consume** esta API: un CRM, un socio, un panel. Tiene rol y API key. | Sí, con su key | **No** |
+| **`trader`** | El **cliente final**, la persona que pone el capital. Es un recurso. | No | Sí |
+
+Un `api_user` no participa del copy trading — el motor MAM ni siquiera sabe que
+existe. Un `trader` nunca hace llamadas: alguien las hace *por* él.
+
+Si tu CRM tiene usuarios finales que se loguean, esos son `traders`, y tu backend
+los representa ante esta API con **una sola** `api_user` key. No emitas una key
+por cliente final.
 
 ### Roles
 
@@ -619,7 +725,19 @@ Para habilitar un retiro de la cuenta PAYMENT usá **`withdrawable`**, no
 
 ## 8. El webhook del proveedor
 
-`POST /webhooks/mam` — lo llama **el proveedor**, no vos.
+> **¿Qué tenés que hacer vos? Nada.** El webhook ya está registrado con el
+> proveedor y funciona solo. Esta sección explica qué hace, no qué configurar.
+
+`POST /webhooks/mam` — lo llama **el proveedor**, no vos. Es lo único que va en
+esa dirección: todo el resto de la API sos vos llamándolo a él.
+
+**Para qué sirve.** Algunas suscripciones terminan **sin que vos pidas nada**:
+el equity de un cliente toca su `equity_stop` un martes a las 3 de la mañana y el
+motor corta la relación solo. Sin este aviso, tu base seguiría diciendo `ACTIVE`
+para siempre y tu panel mostraría un cliente suscrito que ya no copia nada.
+
+Llegan con dos razones: `EQUITY_STOP` (el equity tocó el piso) y
+`USER_UNSUBSCRIBE` (la baja se originó del lado del proveedor).
 
 Cuelga **fuera de `/api/v1`** a propósito: ese router exige nuestra API key, y el
 proveedor no la tiene. Autentica firmando el cuerpo con `HMAC-SHA256` sobre un
