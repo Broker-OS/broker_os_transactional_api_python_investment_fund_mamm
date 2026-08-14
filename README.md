@@ -79,8 +79,15 @@ python -m alembic upgrade head
 python -m uvicorn app.main:app --reload --port 8200
 ```
 
-Swagger en `http://localhost:8200/docs`. Un `GET /health` sin API key resume las
-observaciones de configuración detectadas al arrancar (solo códigos, nunca valores).
+Swagger en `http://localhost:8200/docs`. Un `GET /health` sin API key verifica que
+la base responda y resume las observaciones de configuración detectadas al
+arrancar (solo códigos, nunca valores). Si la base no contesta devuelve **`503`**:
+un proceso vivo contra una base caída no es un despliegue bueno, y es justo lo
+que mira el deploy.
+
+Las observaciones de configuración **no** tumban el `/health` — el servicio
+levanta igual y falla recién cuando alguien usa esa función. Para eso está
+`GET /api/v1/mam/ops/readiness`.
 
 ### Tests
 
@@ -121,9 +128,14 @@ sudo journalctl -u broker-os-mam -f
 
 Un push a la rama **`production`** dispara
 [`.github/workflows/deploy-production.yml`](.github/workflows/deploy-production.yml):
-corre los tests del contrato MAM, y solo si pasan sube el código por SSH, aplica
-las migraciones, reinicia el servicio y verifica que la URL pública responda.
+corre los tests que no necesitan base ni red (contrato MAM, firma del webhook,
+redacción de secretos), y solo si pasan sube el código por SSH, aplica las
+migraciones, reinicia el servicio y verifica que la URL pública responda sana.
 También se puede lanzar a mano desde la pestaña **Actions**.
+
+El deploy **aborta** si la migración falla, si el servicio no queda activo o si
+`/health` no responde `healthy`. Una migración fallida deja el servicio corriendo
+con la versión anterior en vez de activar código contra un esquema viejo.
 
 El `.env` y el `venv` **del servidor no se tocan**: el deploy los preserva. Los
 secretos de la app viven solo allá.
@@ -313,6 +325,16 @@ medio camino necesitan una decisión; una suscripción cerrando posiciones, no.
 configuración que **recién se nota cuando alguien intenta usar una función**. Sin
 grupo MT5 el servicio levanta perfecto y falla en la primera creación de cuenta.
 
+Las cinco capacidades que reporta, y qué se rompe si falta cada una:
+
+| Capacidad | Sin esto |
+|---|---|
+| `talk_to_engine` | No hay integración: ninguna operación llega al motor |
+| `create_accounts` | Falla la primera creación de cuenta MT5 |
+| `store_credentials` | El provisioning falla cerrado (no guarda contraseñas en claro) |
+| `deliver_credentials` | La cuenta se crea, pero el cliente recibe login y contraseña **sin saber a qué servidor conectarse** (`MAM_MT5_SERVER`) |
+| `receive_webhooks` | Los avisos de terminación llegan y no se pueden verificar, así que no se procesan |
+
 ---
 
 ## Detalles que muerden
@@ -347,7 +369,10 @@ Cosas de la spec que no son obvias y cuestan caro descubrir tarde:
 ## Seguridad
 
 - La `MAM_API_KEY` vive **solo** en el backend. Nunca al navegador, ni a una app
-  móvil, ni al repositorio. El logueo redacta secretos automáticamente.
+  móvil, ni al repositorio. El logueo redacta secretos automáticamente
+  (`app/core/log_redaction.py`), con su suite propia: un fallo de ese filtro
+  tiene dos caras y ninguna se ve sola — o se filtra un secreto, o se **suprime
+  todo log del servicio** y los incidentes quedan sin rastro.
 - El detalle de cuenta del proveedor **devuelve credenciales MT5 en claro**: esa
   respuesta es altamente sensible y no se propaga sin pedirlo explícitamente.
 - Las contraseñas MT5 se guardan **cifradas** (Fernet). Sin

@@ -76,6 +76,16 @@ def run_checks() -> list[Finding]:
             "Falta el grupo MT5 acordado con el broker (MAM_MT5_PLATFORM_GROUP, o bien "
             "MAM_MT5_GROUP_LEADER + MAM_MT5_GROUP_FOLLOWER): no se pueden crear cuentas."))
 
+    # El servidor MT5 es el tercer dato que el cliente necesita para entrar a la
+    # terminal, junto con login y contrasena. Sin el, la cuenta se crea igual y
+    # el problema aparece del otro lado: alguien recibe credenciales que no
+    # dicen a donde conectarse.
+    if not settings.MAM_MT5_SERVER.strip():
+        findings.append(Finding(
+            "WARNING", "MT5_SERVER_MISSING",
+            "Falta MAM_MT5_SERVER: las cuentas se crean, pero las credenciales que se "
+            "entregan al cliente no indican a que servidor MT5 conectarse."))
+
     # ── copy trading (spec §4.1) ──
     if settings.MAM_ACCOUNT_MODE.strip().upper() != "HEDGING":
         findings.append(Finding(

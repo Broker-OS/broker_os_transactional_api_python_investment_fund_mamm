@@ -26,6 +26,7 @@ PY = sys.executable
 SIN_BD = [
     "test_mam_client.py",
     "test_webhook_signature.py",
+    "test_log_redaction.py",
 ]
 CON_BD = [
     "test_db_perf_fee.py",

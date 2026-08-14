@@ -1,9 +1,11 @@
 """Punto de entrada del servicio Broker OS · Investment Fund MAM."""
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.api.webhooks import router as webhooks_router
 from app.api.v1.router import api_router
@@ -11,6 +13,7 @@ from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.log_redaction import install as install_log_redaction
 from app.core.startup_checks import log_findings, run_checks, summary
+from app.db.database import engine
 from app.schemas.common import APIResponse, ErrorDetail, error_response
 
 logging.basicConfig(level=logging.INFO)
@@ -138,11 +141,19 @@ _TAGS_METADATA = [
     {"name": "Salud", "description": "Chequeo de estado del servicio. **No requiere API key.**"},
 ]
 
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    """Revisa la configuración al arrancar y deja constancia en el log."""
+    log_findings(run_checks())
+    yield
+
+
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.VERSION,
     description=_DESCRIPTION,
     root_path=settings.ROOT_PATH,
+    lifespan=_lifespan,
     openapi_tags=_TAGS_METADATA,
     contact={"name": "Broker OS · Investment Fund MAM"},
     swagger_ui_parameters={
@@ -172,22 +183,37 @@ async def _validation_handler(_: Request, exc: RequestValidationError):
     )
 
 
-@app.on_event("startup")
-async def _startup_config_check() -> None:
-    """Revisa la configuración al arrancar y deja constancia en el log."""
-    log_findings(run_checks())
-
-
 @app.get("/health", tags=["Salud"], summary="Chequeo de estado",
          description=(
-             "Verifica que el servicio esté arriba. No requiere API key.\n\n"
+             "Verifica que el servicio esté arriba **y que la base responda**. No "
+             "requiere API key.\n\n"
+             "Si la base no contesta devuelve **`503`** con `status: unhealthy`: es lo "
+             "que mira el deploy, y un proceso vivo contra una base caída no es un "
+             "despliegue bueno.\n\n"
              "`config` resume las observaciones de configuración detectadas al arrancar "
              "(solo códigos y conteos, nunca valores): HTTPS del proveedor, secretos "
-             "faltantes, grupo MT5 sin definir."
+             "faltantes, grupo MT5 sin definir. Esas **no** tumban el `/health` — el "
+             "servicio levanta igual y falla recién al usar la función. Para eso está "
+             "`GET /api/v1/mam/ops/readiness`."
          ))
 async def health():
+    # El proceso puede responder perfecto con Postgres caido: sin esta consulta,
+    # el health-check del deploy da verde sobre un servicio que no puede operar.
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        db_estado = "ok"
+    except Exception as exc:  # noqa: BLE001 — cualquier fallo de la base es "no operativo"
+        logging.getLogger(__name__).error("Health check: la base no responde: %s", exc)
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "app": settings.APP_NAME,
+                     "version": settings.VERSION, "database": "unreachable",
+                     "config": summary()},
+        )
+
     return {"status": "healthy", "app": settings.APP_NAME, "version": settings.VERSION,
-            "config": summary()}
+            "database": db_estado, "config": summary()}
 
 
 app.include_router(api_router)

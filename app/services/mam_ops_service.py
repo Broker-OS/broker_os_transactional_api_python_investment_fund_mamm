@@ -124,6 +124,9 @@ class MamOpsService:
                 settings.MAM_MT5_PLATFORM_GROUP
                 or (settings.MAM_MT5_GROUP_LEADER and settings.MAM_MT5_GROUP_FOLLOWER)),
             "store_credentials": bool(settings.MT5_CREDENTIALS_ENCRYPTION_KEY),
+            # Crear la cuenta no alcanza: sin el nombre del servidor MT5 el
+            # cliente recibe login y contrasena pero no a donde conectarse.
+            "deliver_credentials": bool(settings.MAM_MT5_SERVER.strip()),
             "receive_webhooks": bool(settings.MAM_WEBHOOK_SIGNING_SECRET),
             "talk_to_engine": bool(settings.MAM_API_BASE_URL and settings.MAM_API_KEY),
         }

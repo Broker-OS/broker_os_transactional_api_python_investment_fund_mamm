@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+import sys
 
 MASK = "***REDACTED***"
 
@@ -54,17 +54,17 @@ def redact(text: str) -> str:
     out = _QS_RE.sub(lambda m: f"{m.group('prefix')}{MASK}", out)
     out = _BEARER_RE.sub(lambda m: f"{m.group(1)}{MASK}", out)
 
-    # La CRM API key puede aparecer suelta (sin clave que la preceda).
+    # Los secretos fijos del servicio pueden aparecer sueltos, sin ninguna clave
+    # que los preceda: en un traceback de httpx, en el `repr()` de un request.
+    # Se barren por valor literal.
     from app.core.config import settings  # import diferido: evita ciclo en el arranque
 
-    for secret in (settings.CODENCH_CRM_API_KEY, settings.MT5_CREDENTIALS_ENCRYPTION_KEY):
+    for secret in (settings.MAM_API_KEY,
+                   settings.MAM_WEBHOOK_SIGNING_SECRET,
+                   settings.MT5_CREDENTIALS_ENCRYPTION_KEY):
         if secret and len(secret) >= 8 and secret in out:
             out = out.replace(secret, MASK)
     return out
-
-
-def _redact_any(value: Any) -> Any:
-    return redact(value) if isinstance(value, str) else value
 
 
 class SecretRedactionFilter(logging.Filter):
@@ -73,18 +73,43 @@ class SecretRedactionFilter(logging.Filter):
     Nunca descarta registros ni deja propagar una excepcion: si la redaccion
     falla, es preferible perder el enmascarado que perder el log... salvo el
     mensaje mismo, que en ese caso se reemplaza por completo.
+
+    Pero ese reemplazo NO puede pasar desapercibido. Un fallo aca no rompe nada
+    visible — el servicio sigue andando y los logs se ven "normales", solo que
+    todos dicen lo mismo — y deja el sistema sin observabilidad justo cuando mas
+    se la necesita. Por eso la primera vez se grita por stderr, fuera del propio
+    logging (que es lo que esta fallando).
     """
+
+    _fallo_reportado = False
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
-            if isinstance(record.msg, str):
-                record.msg = redact(record.msg)
             if record.args:
-                if isinstance(record.args, dict):
-                    record.args = {k: _redact_any(v) for k, v in record.args.items()}
-                elif isinstance(record.args, tuple):
-                    record.args = tuple(_redact_any(a) for a in record.args)
-        except Exception:  # pragma: no cover - defensivo
+                # Se interpola PRIMERO y se redacta sobre el resultado.
+                #
+                # Al reves no funciona: en `logger.info("api_key=%s", key)` el
+                # template ya contiene `api_key=`, la regex se come el `%s` que
+                # viene detras y lo reemplaza por la mascara. El registro queda
+                # sin placeholder y con un argumento suelto, asi que revienta al
+                # emitirse ("not all arguments converted") y el mensaje se pierde.
+                #
+                # De paso alcanza a los secretos que solo existen DESPUES de
+                # interpolar, que es justo el caso que importa: el template es
+                # codigo fuente, el secreto siempre viaja en los args.
+                record.msg = redact(record.getMessage())
+                record.args = None
+            elif isinstance(record.msg, str):
+                record.msg = redact(record.msg)
+        except Exception as exc:  # pragma: no cover - defensivo
+            if not SecretRedactionFilter._fallo_reportado:
+                SecretRedactionFilter._fallo_reportado = True
+                print(
+                    "CRITICO: el filtro de redaccion de secretos esta fallando "
+                    f"({type(exc).__name__}: {exc}). TODOS los logs del servicio se "
+                    "estan suprimiendo. Revisar app/core/log_redaction.py.",
+                    file=sys.stderr, flush=True,
+                )
             record.msg = "[log redaction failed; mensaje suprimido por seguridad]"
             record.args = None
         return True

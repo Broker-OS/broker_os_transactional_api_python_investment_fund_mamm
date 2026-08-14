@@ -41,6 +41,17 @@ jobs:
       - name: Tests del cliente MAM
         run: python tests/test_mam_client.py
 
+      # La firma HMAC es la UNICA autenticacion del endpoint publico
+      # /webhooks/mam: ahi no hay API key que valga. Un fallo aca significa que
+      # cualquiera podria inyectar un evento de terminacion.
+      - name: Test de la firma del webhook
+        run: python tests/test_webhook_signature.py
+
+      # Un fallo del filtro de redaccion tiene dos caras y ninguna se ve sola:
+      # o se filtra un secreto a los logs, o se suprime TODO log del servicio.
+      - name: Test de redaccion de secretos en logs
+        run: python tests/test_log_redaction.py
+
   deploy:
     name: Desplegar al server
     needs: test
@@ -85,12 +96,24 @@ jobs:
       - name: Deploy (SSH -> upload -> migrate -> restart)
         run: python scripts/deploy.py
 
+      # /health devuelve 503 si la base no responde, asi que `curl -f` ya
+      # distingue "el proceso esta arriba" de "el servicio puede operar".
       - name: Verificar que el servicio responda
         run: |
           URL="https://transactionalapi.branchtech.co/mam/health"
+          BODY=""
           for i in 1 2 3 4 5; do
-            if curl -fsS --max-time 10 "$URL"; then echo; echo "OK"; exit 0; fi
-            echo "intento $i sin respuesta, reintentando..."; sleep 5
+            if BODY=$(curl -fsS --max-time 10 "$URL"); then
+              echo "$BODY"
+              # Las observaciones de configuracion no tumban el health (el
+              # servicio levanta igual), pero no pueden pasar en silencio: cada
+              # una es una funcion que va a fallar recien cuando alguien la use.
+              if ! echo "$BODY" | grep -qE '"critical": ?0'; then
+                echo "::warning::El servicio respondió pero hay configuración CRITICAL pendiente. Revisar GET /mam/api/v1/mam/ops/readiness."
+              fi
+              echo "OK"; exit 0
+            fi
+            echo "intento $i sin respuesta o 503, reintentando..."; sleep 5
           done
-          echo "::error::El servicio no respondió en $URL"
+          echo "::error::El servicio no respondió sano en $URL (¿base caída? ver journalctl -u broker-os-mam)"
           exit 1

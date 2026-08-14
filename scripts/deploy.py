@@ -108,23 +108,57 @@ sftp.putfo(buf, f"{home}/mam_deploy.tar.gz")
 sftp.close()
 print("codigo subido")
 
+def _abortar(motivo: str):
+    print(f"FALLO: {motivo}")
+    ssh.close()
+    sys.exit(1)
+
+
+# La migracion NO se encadena con `| tail`: el exit status de un pipe es el del
+# ULTIMO comando, asi que un `alembic upgrade` fallido pasaria por exitoso y el
+# servicio arrancaria contra el esquema viejo. Se redirige a un log y se mira el
+# codigo de salida de alembic directamente (`pipefail` no existe en dash).
 rc, out = run(
     f"set -e; mkdir -p {rdir}; rm -rf {rdir}/app; "
     f"tar xzf {home}/mam_deploy.tar.gz -C {rdir}; rm -f {home}/mam_deploy.tar.gz; "
     f"cd {rdir}; (test -d venv || python3.12 -m venv venv || python3 -m venv venv); "
     f"./venv/bin/pip install -q -r requirements.txt; "
-    f"./venv/bin/alembic upgrade head 2>&1 | tail -2; echo SYNC_OK",
+    f"if ./venv/bin/alembic upgrade head > /tmp/mam_migrate.log 2>&1; then "
+    f"  tail -2 /tmp/mam_migrate.log; "
+    f"else "
+    f"  echo MIGRATE_FAIL; tail -20 /tmp/mam_migrate.log; exit 1; "
+    f"fi; echo SYNC_OK",
     "sync + deps + migrate",
 )
-if "SYNC_OK" not in out:
-    print("FALLO sync"); ssh.close(); sys.exit(1)
+if "MIGRATE_FAIL" in out:
+    _abortar("la migracion no aplico. El codigo NO se activa: el servicio sigue "
+             "con la version anterior. Revisar /tmp/mam_migrate.log en el server.")
+if rc != 0 or "SYNC_OK" not in out:
+    _abortar("sync/deps/migrate no termino bien")
 
-run(f"systemctl restart {svc}", "restart servicio", sudo=True)
+rc, _ = run(f"systemctl restart {svc}", "restart servicio", sudo=True)
+if rc != 0:
+    run(f"journalctl -u {svc} -n 25 --no-pager", "journal (fallo)", sudo=True)
+    _abortar("systemctl restart devolvio error")
+
 time.sleep(3)
 rc, out = run(f"systemctl is-active {svc}", "is-active", sudo=True)
-run(f"curl -s --max-time 8 http://127.0.0.1:{port}/health || echo '(sin respuesta)'", "health local")
 if "active" not in out:
     run(f"journalctl -u {svc} -n 25 --no-pager", "journal (fallo)", sudo=True)
+    _abortar(f"el servicio {svc} no quedo activo")
+
+# /health ahora consulta la base y resume los chequeos de configuracion. Que el
+# proceso responda no alcanza: con Postgres caido o un secreto faltante el
+# deploy no puede darse por bueno.
+rc, out = run(f"curl -s --max-time 8 http://127.0.0.1:{port}/health || echo '(sin respuesta)'",
+              "health local")
+if '"status": "healthy"' not in out and '"status":"healthy"' not in out:
+    run(f"journalctl -u {svc} -n 25 --no-pager", "journal (fallo)", sudo=True)
+    _abortar("/health no responde 'healthy' (mirar 'database' y 'config' en la respuesta)")
+if '"critical": 0' not in out and '"critical":0' not in out:
+    print("AVISO: /health reporta observaciones CRITICAL de configuracion.")
+    print("       El servicio esta arriba pero hay funciones que van a fallar al usarse.")
+    print("       Ver GET /api/v1/mam/ops/readiness para el detalle.")
 
 ssh.close()
 print("DEPLOY LISTO")

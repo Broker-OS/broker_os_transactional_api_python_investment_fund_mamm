@@ -1,4 +1,4 @@
-"""
+r"""
 Baja de cuentas del servicio MAM (spec §11.1).
 
 NO ES UN DELETE. Una cuenta puede arrastrar suscripciones vivas y posiciones
