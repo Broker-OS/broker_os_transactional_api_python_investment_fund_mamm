@@ -31,6 +31,23 @@ def _is_production() -> bool:
     return settings.ENVIRONMENT.strip().lower() in ("production", "prod", "produccion")
 
 
+# Redes de prueba conocidas. Lo que no este aca se trata como red REAL, que es el
+# lado seguro para equivocarse: como mucho sobra un aviso.
+_CHAINS_DE_PRUEBA = {5, 97, 4002, 5611, 43113, 80001, 80002, 84532, 421614,
+                     11155111, 11155420}
+
+
+def _es_address(valor: str) -> bool:
+    v = valor.strip()
+    if not v.startswith("0x") or len(v) != 42:
+        return False
+    try:
+        int(v[2:], 16)
+    except ValueError:
+        return False
+    return True
+
+
 def run_checks() -> list[Finding]:
     findings: list[Finding] = []
     prod = _is_production()
@@ -101,6 +118,43 @@ def run_checks() -> list[Finding]:
             "Falta MAM_WEBHOOK_SIGNING_SECRET: no se puede verificar la firma de los "
             "eventos de terminacion, asi que no se procesan. El secreto se entrega en "
             "claro UNA SOLA VEZ al registrar el webhook."))
+
+    # ── depositos on-chain ──
+    # El modulo es OPCIONAL: sin configurar, el servicio anda perfecto y solo
+    # falla /crypto-deposits. Lo que si es peligroso es dejarlo A MEDIAS.
+    contrato = (settings.EVM_USDC_CONTRACT or "").strip()
+    receptora = (settings.EVM_RECEIVING_ADDRESS or "").strip()
+
+    if not contrato and not receptora:
+        findings.append(Finding(
+            "INFO", "EVM_DISABLED",
+            "Depositos on-chain deshabilitados: falta EVM_USDC_CONTRACT y "
+            "EVM_RECEIVING_ADDRESS."))
+    elif not (contrato and receptora):
+        # La mitad puesta es peor que nada: alguien quiso habilitarlo y lo dejo
+        # por la mitad. El endpoint responde EVM_NOT_CONFIGURED y nadie sabe por que.
+        falta = "EVM_USDC_CONTRACT" if not contrato else "EVM_RECEIVING_ADDRESS"
+        findings.append(Finding(
+            "WARNING", "EVM_PARTIALLY_CONFIGURED",
+            f"Depositos on-chain configurados a medias: falta {falta}. El endpoint "
+            f"rechaza todo con EVM_NOT_CONFIGURED."))
+    else:
+        for etiqueta, valor in (("EVM_USDC_CONTRACT", contrato),
+                                ("EVM_RECEIVING_ADDRESS", receptora)):
+            if not _es_address(valor):
+                findings.append(Finding(
+                    "CRITICAL" if prod else "WARNING", "EVM_ADDRESS_INVALID",
+                    f"{etiqueta} no es una address EVM valida (0x + 40 hex). Ninguna "
+                    f"transferencia va a coincidir y todo comprobante se rechaza."))
+
+        # En una red real, pocas confirmaciones dejan la puerta abierta a que un
+        # reorg borre una transferencia que ya se acredito en el libro.
+        if settings.EVM_CHAIN_ID not in _CHAINS_DE_PRUEBA and settings.EVM_MIN_CONFIRMATIONS < 20:
+            findings.append(Finding(
+                "WARNING", "EVM_CONFIRMATIONS_LOW",
+                f"EVM_MIN_CONFIRMATIONS={settings.EVM_MIN_CONFIRMATIONS} en una red "
+                f"principal (chain {settings.EVM_CHAIN_ID}). Un reorg puede borrar una "
+                f"transferencia ya acreditada en el libro contable."))
 
     # ── entorno ──
     if prod and settings.DEBUG:

@@ -144,6 +144,12 @@ class MamOpsService:
             "deliver_credentials": bool(settings.MAM_MT5_SERVER.strip()),
             "receive_webhooks": bool(settings.MAM_WEBHOOK_SIGNING_SECRET),
             "talk_to_engine": bool(settings.MAM_API_BASE_URL and settings.MAM_API_KEY),
+            # Depositos on-chain. Las dos hacen falta: con una sola, el endpoint
+            # rechaza todo con EVM_NOT_CONFIGURED.
+            "verify_crypto_deposits": bool(
+                settings.EVM_USDC_CONTRACT.strip()
+                and settings.EVM_RECEIVING_ADDRESS.strip()
+                and settings.EVM_RPC_URL.strip()),
         }
         pendiente = await self.pending()
 
