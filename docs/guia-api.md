@@ -76,6 +76,11 @@ Además necesita un **perfil de leader** (`POST /mam/leaders`). El flag es el
 permiso; el perfil es la configuración. Una cuenta con el flag pero sin perfil
 rechaza cualquier intento de suscribirle un cliente.
 
+Y hay un tercer campo que se confunde con estos dos: **`rights_profile`**, que no
+tiene nada que ver con MAM — gobierna qué puede hacer el titular en la terminal
+MT5. Solo admite dos valores y **se fija únicamente al crear la cuenta**. Está
+explicado en detalle en el [Paso 2](#paso-2--crear-la-cuenta-mt5).
+
 ---
 
 ## 3. El flujo, de principio a fin
@@ -154,16 +159,56 @@ su dueño a veces todavía no se sabe. Las que queden sin asignar aparecen en
 `/mam/ops/pending` como `accounts_without_client`, y se resuelven con
 `PATCH /mam/accounts/{login}`.
 
-`rights_profile` es la máscara de permisos MT5 y **solo se puede fijar acá** —
-ni el registro de una cuenta existente ni la edición posterior la cambian:
-
-| Valor | Decimal | Significado |
-|---|---|---|
-| `TRADING_ENABLED` | 9073 | Permisos base MAM + trailing stop + Expert Advisors |
-| `TRADING_DISABLED` | 8981 | Permisos base MAM + flag *Trade Disabled* |
-
 La respuesta **no incluye las contraseñas**. Se piden aparte en
 `GET /mam/accounts/{login}/credentials`.
+
+#### `rights_profile`: solo hay dos valores posibles
+
+| Valor | Máscara MT5 | Qué puede hacer el titular |
+|---|---|---|
+| `TRADING_ENABLED` | 9073 (`0x2371`) | Permisos base MAM + trailing stop + Expert Advisors. **Puede operar.** |
+| `TRADING_DISABLED` | 8981 (`0x2315`) | Permisos base MAM + flag *Trade Disabled*. **Entra y ve, pero no puede abrir operaciones.** |
+
+**No hay un tercer valor.** Cualquier otra cosa se rechaza con `422` antes de
+salir a la red, y hay una segunda validación en el cliente HTTP por si algún día
+alguien arma el request por otro camino.
+
+Técnicamente `rights` es un entero y MT5 acepta cualquier combinación de flags.
+La integración se limita a dos porque la spec del proveedor lo pide así: *«No se
+deben inventar ni combinar flags sin validarlos previamente en el servidor MT5
+del broker»*.
+
+El motivo importa: **una máscara mal armada no falla al crear la cuenta.** La
+cuenta se crea perfecta, con su login y su contraseña. El problema aparece cuando
+el cliente entra a la terminal y no puede operar — o puede hacer algo que no
+debería. Del otro lado, sin ningún error que lo explique.
+
+##### No confundirlo con `can_be_leader` / `can_be_follower`
+
+Suenan parecido y son cosas distintas:
+
+| Campo | Gobierna |
+|---|---|
+| `rights_profile` | Qué puede hacer el titular **en la terminal MT5**: entrar, operar |
+| `can_be_leader` / `can_be_follower` | Qué papel juega la cuenta **dentro del copy trading MAM** |
+
+Se combinan libremente, y hay una combinación que para un fondo suele ser la
+correcta: **`TRADING_DISABLED` + `can_be_follower: true`**. La cuenta recibe todas
+las operaciones que copia el motor, pero el titular **no puede operar por su
+cuenta**. Es exactamente lo que querés cuando el cliente pone capital y no toca
+nada — evita que arruine la estrategia abriendo posiciones por su lado.
+
+##### Dos advertencias
+
+**No se puede cambiar después.** `rights` solo se fija en `POST /mam/accounts`. Ni
+`/register` (que no toca los permisos de una cuenta que ya existe) ni el `PATCH`
+de cuenta lo modifican. Si te equivocás, corregirlo es un procedimiento
+administrativo del broker sobre el servidor MT5.
+
+**Si omitís el campo, esta API usa `TRADING_ENABLED`.** Es el default del schema.
+El detalle fino: si el campo no se le mandara al *proveedor*, él usaría `1`
+(`0x1`), que **no es ninguno de los dos perfiles administrados**. Por eso este
+servicio siempre lo manda explícito, aunque vos no lo envíes.
 
 **Variantes según de dónde venga la cuenta:**
 
@@ -776,7 +821,7 @@ indique. Todos exigen `X-API-Key`.
 
 ---
 
-## 12. Las doce cosas que más se rompen
+## 12. Las trece cosas que más se rompen
 
 1. **Crear una cuenta dos veces.** `POST /mam/accounts` no es idempotente.
    Consultá antes de reintentar.
@@ -801,3 +846,7 @@ indique. Todos exigen `X-API-Key`.
     P&L, y asentarla sería inventar movimientos de caja.
 12. **Usar `/deposits` para regularizar un saldo preexistente.** Deposita el
     dinero de verdad y duplica el saldo. Para eso está `/regularize-capital`.
+13. **Equivocarse en `rights_profile` al crear la cuenta.** No se puede corregir
+    después por API: es un procedimiento administrativo del broker. Y si querés
+    que el cliente no opere por su cuenta, `TRADING_DISABLED` **no** le impide
+    recibir las operaciones copiadas — es justo la combinación que suele buscarse.
