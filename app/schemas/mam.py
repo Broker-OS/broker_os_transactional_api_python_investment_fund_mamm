@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Spec §4.1: sin HEDGING la cuenta no puede participar en copy trading.
 AccountMode = Literal["HEDGING", "NETTING"]
@@ -17,41 +17,100 @@ RightsProfile = Literal["TRADING_ENABLED", "TRADING_DISABLED"]
 # Cuentas
 # ══════════════════════════════════════════════════════════════════════
 
-class MamAccountCreateRequest(BaseModel):
-    """Crea la cuenta en MT5 y la registra en MAM (spec §5, paso 1)."""
+class _MamAccountHolderFields(BaseModel):
+    """Datos del titular y de MT5 comunes a toda cuenta que se crea."""
 
     external_reference: str = Field(
         min_length=1,
-        description=("Cliente dueño de la cuenta. **Obligatorio al crear**: sin dueño la "
-                     "cuenta no puede mover capital (el libro contable asienta por cliente) "
-                     "y ningún USER la ve. Para una estrategia del propio fondo, darle de "
-                     "alta un cliente que represente al fondo."))
-    first_name: str = Field(max_length=120, description="MT5 exige nombre del titular.")
-    last_name: str = Field(max_length=120)
+        description=("Cliente dueño de la cuenta (`POST /traders` lo devuelve). **Obligatorio "
+                     "al crear**: sin dueño la cuenta no puede mover capital (el libro contable "
+                     "asienta por cliente) y ningún USER la ve. Para una estrategia del propio "
+                     "fondo, dar de alta un cliente que represente al fondo."))
+    first_name: str = Field(max_length=120, description="Nombre del titular. MT5 lo exige.")
+    last_name: str = Field(max_length=120, description="Apellido del titular.")
     name: str = Field(max_length=160, description="Nombre visible de la cuenta.")
-    username: str = Field(max_length=255, description="Identificador del titular en MT5 (suele ser su email).")
-    can_be_leader: bool = Field(
-        default=False,
-        description="Autoriza a la cuenta a ORIGINAR operaciones. No basta: además necesita perfil de leader.")
-    can_be_follower: bool = Field(
-        default=True, description="Autoriza a la cuenta a RECIBIR operaciones de otra.")
+    username: str = Field(max_length=255,
+                          description="Identificador del titular en MT5 (suele ser su email).")
     rights_profile: RightsProfile = Field(
         default="TRADING_ENABLED",
-        description=("Máscara de permisos MT5. `TRADING_ENABLED` (9073) o `TRADING_DISABLED` "
-                     "(8981). Solo se puede fijar al crear: ni el registro ni la edición "
+        description=("Máscara de permisos MT5: `TRADING_ENABLED` (9073) o `TRADING_DISABLED` "
+                     "(8981). **Solo se fija al crear**: ni el registro ni la edición "
                      "posterior la cambian."))
-    leverage: Optional[int] = Field(default=None, ge=1)
-    currency: str = Field(default="USD", max_length=10)
-    platform_group: Optional[str] = Field(
-        default=None, description="Grupo MT5. Si se omite se usa el configurado en el servicio.")
+    leverage: Optional[int] = Field(
+        default=None, ge=1, description="Apalancamiento. Si se omite, el del servicio (100).")
 
-    model_config = ConfigDict(json_schema_extra={"example": {
+
+class MamStrategyAccountCreateRequest(_MamAccountHolderFields):
+    """Cuenta nueva para una estrategia (master).
+
+    No lleva grupo ni moneda: nace en el grupo de estrategias que configura el
+    servicio, en la moneda del libro.
+    """
+
+    can_be_follower: bool = Field(
+        default=False,
+        description=("Si la estrategia además puede **copiar** a otra estrategia. Lo normal "
+                     "es `false`. Aunque sea `true`, la cuenta queda en el grupo de "
+                     "estrategias."))
+
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"example": {
+        "external_reference": "438434273005",
+        "first_name": "Ana", "last_name": "García",
+        "name": "Estrategia Ana", "username": "ana@example.com",
+        "rights_profile": "TRADING_ENABLED", "leverage": 100,
+    }})
+
+
+class MamInvestorAccountCreateRequest(_MamAccountHolderFields):
+    """Cuenta nueva para un investor: copia estrategias, no las origina."""
+
+    platform_group: str = Field(
+        min_length=1, max_length=128,
+        description=("**Obligatorio.** Grupo MT5 donde nace el investor, escrito exactamente "
+                     "como está en el servidor del broker. ⚠️ **Irreversible**: no se puede "
+                     "cambiar después. Usar solo grupos en USD (la moneda del libro): un grupo "
+                     "cent descuadraría el libro."))
+
+    @field_validator("platform_group")
+    @classmethod
+    def _grupo_no_vacio(cls, v: str) -> str:
+        # Sin esto, "   " pasaria el min_length y el servicio, al recortarlo,
+        # mandaria la cuenta al grupo por defecto sin avisar.
+        v = v.strip()
+        if not v:
+            raise ValueError("platform_group no puede estar vacío")
+        return v
+
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"example": {
         "external_reference": "438434273005",
         "first_name": "Ana", "last_name": "García",
         "name": "Cuenta de Ana", "username": "ana@example.com",
-        "can_be_leader": False, "can_be_follower": True,
-        "rights_profile": "TRADING_ENABLED", "leverage": 100, "currency": "USD",
+        "rights_profile": "TRADING_ENABLED", "leverage": 100,
+        "platform_group": "real\\BRIDGEMARKETS\\CODENCH\\AXINFY\\INVESTOR",
     }})
+
+
+class MamAccountCreateRequest(_MamAccountHolderFields):
+    """Alta general: se eligen las capacidades a mano (spec §5, paso 1)."""
+
+    can_be_leader: bool = Field(
+        default=False,
+        description=("Autoriza a la cuenta a ORIGINAR operaciones (estrategia). No basta: además "
+                     "necesita perfil de leader. **También decide el grupo MT5**: `true` nace en "
+                     "el grupo de estrategias y no admite `platform_group`."))
+    can_be_follower: bool = Field(
+        default=True, description="Autoriza a la cuenta a RECIBIR operaciones de otra.")
+    currency: Optional[str] = Field(
+        default=None, max_length=10,
+        description=("Moneda de la cuenta. Se puede omitir. Solo se crean cuentas en la "
+                     "moneda del libro contable (USD): otra se rechaza."))
+    platform_group: Optional[str] = Field(
+        default=None,
+        description=("Grupo MT5 donde nace la cuenta. **Solo para investors** "
+                     "(`can_be_leader: false`): con `can_be_leader: true` se rechaza, la "
+                     "estrategia cae sola en el grupo de estrategias. Si se omite, el investor "
+                     "nace en el grupo de investors por defecto. ⚠️ Irreversible: el grupo no "
+                     "se puede cambiar después."))
 
 
 class MamAccountRegisterRequest(BaseModel):

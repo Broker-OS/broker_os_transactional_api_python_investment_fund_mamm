@@ -98,8 +98,15 @@ _TAGS_METADATA = [
     {"name": "3. Clientes", "description":
         "Registrar y listar clientes. Un USER solo ve los suyos."},
     {"name": "4. MAM · Cuentas", "description":
-        "Crear cuentas MT5 nuevas o registrar existentes, consultar su balance en vivo, "
-        "entregar credenciales y cambiar sus capacidades (`can_be_leader` / `can_be_follower`)."},
+        "Alta y gestión de cuentas MT5.\n\n"
+        "| Quiero… | Endpoint |\n|---|---|\n"
+        "| Crear una **estrategia** (master) nueva | `POST /mam/accounts/strategy` |\n"
+        "| Crear un **investor** nuevo, en el grupo MT5 que elijas | `POST /mam/accounts/investor` |\n"
+        "| Registrar una cuenta MT5 que ya existe | `POST /mam/accounts/register` |\n"
+        "| Traer una cuenta que el motor ya conoce | `POST /mam/accounts/import` |\n\n"
+        "También: consultar el balance en vivo, entregar credenciales y cambiar capacidades. "
+        "Solo los dos primeros crean cuentas en MT5 y, por lo tanto, **solo ahí se fija el "
+        "grupo**: registrar o importar no cambia el grupo de una cuenta que ya existe."},
     {"name": "5. MAM · Estrategias (leader)", "description":
         "Convertir una cuenta en estrategia seguible: fee, mínimo de suscripción, "
         "visibilidad y propagación. Incluye el saldo y el retiro de la **cuenta PAYMENT** "

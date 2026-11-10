@@ -55,7 +55,7 @@ from app.repositories.mam_repository import MamRepository
 from app.repositories.movement_repository import MovementRepository
 from app.repositories.trader_repository import TraderRepository
 from app.services.ledger_service import LedgerService
-from app.services.mam_account_service import MamAccountService
+from app.services.mam_account_service import MamAccountService, ensure_ledger_currency
 from app.services.mam_client import get_mam_client
 
 logger = logging.getLogger(__name__)
@@ -105,6 +105,9 @@ class MamCapitalService:
                 message="La cuenta no tiene un cliente asociado y no puede mover capital",
                 detail=(f"mt5_login={acc.mt5_login}: el libro contable registra el capital "
                         f"por cliente. Asociar la cuenta a un cliente primero."))
+        # Deposito, retiro y regularizacion asientan en el libro el mismo numero
+        # que viaja al motor: en una cuenta en otra moneda (cent) descuadra.
+        ensure_ledger_currency(acc, para="mover capital")
         return acc, acc.trader_id
 
     async def _guard_in_flight(self, acc: MamAccount) -> None:

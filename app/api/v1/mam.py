@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin, require_api_key
+from app.core.config import settings
 from app.db.database import get_db
 from app.models.api_user import ROLE_ADMIN, ApiUser
 from app.schemas.common import APIResponse
@@ -28,6 +29,8 @@ from app.schemas.mam import (
     LeaderProfileRead,
     LeaderProfileUpdateRequest,
     MamAccountCreateRequest,
+    MamInvestorAccountCreateRequest,
+    MamStrategyAccountCreateRequest,
     MamAccountCredentialsRead,
     MamAccountImportRequest,
     MamAccountListResponse,
@@ -88,36 +91,101 @@ async def _read(svc: MamAccountService, acc) -> dict:
 # Cuentas
 # ══════════════════════════════════════════════════════════════════════
 
-@router.post("/mam/accounts", response_model=APIResponse, tags=_CUENTAS,
-             status_code=status.HTTP_201_CREATED,
-             summary="Crear una cuenta MT5 nueva y registrarla en MAM",
-             description=(
-                 "Crea la cuenta **en el servidor MT5 del broker** y la registra en el motor.\n\n"
-                 "El motor no tiene tipos de cuenta: `can_be_leader` y `can_be_follower` son "
-                 "**independientes** y pueden estar los dos activos. Para que la cuenta pueda "
-                 "originar operaciones no alcanza con el flag — además necesita un **perfil de "
-                 "estrategia** (`POST /mam/leaders`).\n\n"
-                 "`rights_profile` es la máscara de permisos MT5 y **solo se puede fijar acá**: "
-                 "ni el registro de una cuenta existente ni la edición posterior la cambian.\n\n"
-                 "`external_reference` es **obligatorio**: una cuenta sin cliente no puede "
-                 "mover capital y no la ve ningún USER. Si la estrategia es del propio fondo, "
-                 "dale de alta un cliente que lo represente.\n\n"
-                 "⚠️ **No es idempotente.** Ante un timeout, consultá por el login antes de "
-                 "reintentar: repetir a ciegas crea una segunda cuenta real en MT5.\n\n"
-                 "La respuesta **no** incluye las contraseñas; se piden aparte en "
-                 "`/mam/accounts/{login}/credentials`."
-             ))
-async def create_account(body: MamAccountCreateRequest, db: AsyncSession = Depends(get_db),
-                         caller: ApiUser = Depends(require_api_key)):
+# Comun a las tres altas: lo que hay que tener antes, y por que no reintentar.
+_ALTA_COMUN = (
+    "**Antes:** el cliente tiene que existir (`POST /traders`). `external_reference` es "
+    "obligatorio: una cuenta sin cliente no puede mover capital y no la ve ningún USER.\n\n"
+    "⚠️ **No es idempotente.** Ante un timeout, consultá `GET /mam/accounts` antes de "
+    "reintentar: repetir a ciegas crea una segunda cuenta real en MT5.\n\n"
+    "La respuesta **no** incluye contraseñas: se piden en "
+    "`GET /mam/accounts/{login}/credentials`."
+)
+
+
+async def _create(db: AsyncSession, caller: ApiUser, body, **fijos) -> APIResponse:
     svc = MamAccountService(db)
     acc = await svc.create_account(
         external_reference=body.external_reference, first_name=body.first_name,
         last_name=body.last_name, name=body.name, username=body.username,
-        can_be_leader=body.can_be_leader, can_be_follower=body.can_be_follower,
-        rights_profile=body.rights_profile, leverage=body.leverage,
-        currency=body.currency, platform_group=body.platform_group, caller=caller)
-    return APIResponse(success=True, http_status=201, message="Cuenta creada correctamente",
+        rights_profile=body.rights_profile, leverage=body.leverage, caller=caller, **fijos)
+    msg = "Cuenta creada correctamente"
+    libro = (settings.LEDGER_CURRENCY or "").strip().upper()
+    if (acc.currency or "").strip().upper() != libro:
+        # La cuenta ya existe en MT5: no se puede deshacer, pero quien la creo
+        # tiene que enterarse ya, no cuando falle el primer deposito.
+        msg = (f"Cuenta creada, pero el motor informa moneda {acc.currency} y el libro es "
+               f"{libro}: queda BLOQUEADA para depositos, retiros y suscripciones. "
+               f"Revisar el grupo MT5 con el broker.")
+    return APIResponse(success=True, http_status=201, message=msg,
                        data=await _read(svc, acc))
+
+
+# ── Alta ──
+
+@router.post("/mam/accounts/strategy", response_model=APIResponse, tags=_CUENTAS,
+             status_code=status.HTTP_201_CREATED,
+             summary="Crear la cuenta MT5 de una estrategia (master)",
+             description=(
+                 "Crea en el servidor MT5 del broker la cuenta que va a **originar** operaciones "
+                 "para que otros las copien, y la registra en el motor.\n\n"
+                 "**No se elige grupo:** nace sola en el grupo de estrategias configurado en "
+                 "el servicio, en la moneda del libro. Enviar `platform_group` o `currency` da "
+                 "`422`.\n\n"
+                 "**Después:** la cuenta todavía no es seguible. Falta crearle el perfil con "
+                 "`POST /mam/leaders` (fee, mínimo, visibilidad).\n\n" + _ALTA_COMUN
+             ))
+async def create_strategy_account(body: MamStrategyAccountCreateRequest,
+                                  db: AsyncSession = Depends(get_db),
+                                  caller: ApiUser = Depends(require_api_key)):
+    return await _create(db, caller, body, can_be_leader=True,
+                         can_be_follower=body.can_be_follower)
+
+
+@router.post("/mam/accounts/investor", response_model=APIResponse, tags=_CUENTAS,
+             status_code=status.HTTP_201_CREATED,
+             summary="Crear la cuenta MT5 de un investor",
+             description=(
+                 "Crea en el servidor MT5 del broker una cuenta que **copia** estrategias, y la "
+                 "registra en el motor.\n\n"
+                 "**`platform_group` es obligatorio:** el grupo MT5 donde va a vivir la "
+                 "cuenta, escrito **exactamente** como está en el servidor del broker (ej. "
+                 "`real\\\\BROKER\\\\INVESTOR`). ⚠️ **Irreversible**: el grupo no se puede "
+                 "cambiar después, y ni el motor ni MT5 validan el nombre antes de crear — "
+                 "revisalo dos veces.\n\n"
+                 "⚠️ **Grupos cent.** Usá solo grupos en la moneda del libro (USD). Los montos "
+                 "viajan al motor sin conversión: en una cuenta cent un depósito de 100 "
+                 "descontaría 100 USD de la maestra y acreditaría 1 USD. Este servicio no puede "
+                 "saber la moneda de un grupo antes de crearlo; si el motor informa que la "
+                 "cuenta nació en otra moneda, queda **bloqueada** para depósitos, retiros y "
+                 "suscripciones, y la respuesta lo avisa.\n\n"
+                 "**Después:** depositar (`POST /mam/accounts/{login}/deposits`), verificar "
+                 "elegibilidad y suscribirla a la estrategia (`POST /mam/allocations`).\n\n"
+                 + _ALTA_COMUN
+             ))
+async def create_investor_account(body: MamInvestorAccountCreateRequest,
+                                  db: AsyncSession = Depends(get_db),
+                                  caller: ApiUser = Depends(require_api_key)):
+    return await _create(db, caller, body, can_be_leader=False, can_be_follower=True,
+                         platform_group=body.platform_group)
+
+
+@router.post("/mam/accounts", response_model=APIResponse, tags=_CUENTAS,
+             status_code=status.HTTP_201_CREATED,
+             summary="Crear una cuenta MT5 eligiendo las capacidades a mano (avanzado)",
+             description=(
+                 "Alta general. **Para el caso normal usá `/mam/accounts/strategy` o "
+                 "`/mam/accounts/investor`**, que fijan las capacidades y el grupo por vos.\n\n"
+                 "Sirve para combinaciones que esos dos no cubren (ej. una cuenta sin copy "
+                 "trading). `can_be_leader` y `can_be_follower` son independientes, pero "
+                 "**`can_be_leader` decide el grupo**: `true` nace en el de estrategias y no "
+                 "admite `platform_group` (`422 PLATFORM_GROUP_LEADER_FORBIDDEN`). Las reglas de "
+                 "grupo y moneda son las mismas que en `/investor`.\n\n" + _ALTA_COMUN
+             ))
+async def create_account(body: MamAccountCreateRequest, db: AsyncSession = Depends(get_db),
+                         caller: ApiUser = Depends(require_api_key)):
+    return await _create(db, caller, body, can_be_leader=body.can_be_leader,
+                         can_be_follower=body.can_be_follower, currency=body.currency,
+                         platform_group=body.platform_group)
 
 
 @router.post("/mam/accounts/register", response_model=APIResponse, tags=_CUENTAS,

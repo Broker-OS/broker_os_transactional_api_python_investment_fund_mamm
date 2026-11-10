@@ -51,7 +51,11 @@ from app.models.mam import (
 )
 from app.repositories.mam_repository import MamRepository
 from app.repositories.trader_repository import TraderRepository
-from app.services.mam_account_service import MamAccountService, _as_int
+from app.services.mam_account_service import (
+    MamAccountService,
+    _as_int,
+    ensure_ledger_currency,
+)
 from app.services.mam_client import get_mam_client
 from app.services.trader_service import TraderService
 
@@ -82,6 +86,9 @@ class MamAllocationService:
             raise AccountNotHedgingError(
                 message=f"La cuenta {rol} no usa HEDGING y no puede hacer copy trading",
                 detail=f"mt5_login={acc.mt5_login} account_mode={acc.account_mode}")
+        # Leader USD con follower cent copiaria volumenes en otra escala, y los
+        # fees del motor se asentarian en el libro sin conversion.
+        ensure_ledger_currency(acc, para=f"suscribirla como {rol}")
 
     async def _resolve_pair(self, leader_login: str, follower_login: str, *, caller=None):
         if str(leader_login).strip() == str(follower_login).strip():

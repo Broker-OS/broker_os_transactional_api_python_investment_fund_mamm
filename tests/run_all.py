@@ -25,6 +25,7 @@ PY = sys.executable
 # se van sumando a medida que se implementan los servicios.
 SIN_BD = [
     "test_mam_client.py",
+    "test_mam_groups.py",
     "test_webhook_signature.py",
     "test_log_redaction.py",
 ]

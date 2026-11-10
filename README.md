@@ -218,6 +218,12 @@ fallaría en silencio, operación por operación.
 queda en el grupo MASTER, con esas condiciones también mientras copia. El grupo
 MT5 se fija al crear la cuenta y **no se puede mover después**.
 
+**Elegir grupo: solo investors.** `POST /mam/accounts/strategy` no acepta
+grupo: la estrategia cae en `MAM_MT5_GROUP_LEADER`. `POST /mam/accounts/investor`
+exige `platform_group`, el grupo MT5 tal como está en el servidor del broker.
+Usar solo grupos en USD: una cuenta en otra moneda (por ejemplo, cent) no puede
+mover capital ni suscribirse, porque los montos viajan sin conversión.
+
 Si algún día el broker define un grupo único para MAM, se vacían
 `MAM_MT5_GROUP_LEADER` y `MAM_MT5_GROUP_FOLLOWER` y se llena
 `MAM_MT5_PLATFORM_GROUP`. Es configuración, no código.

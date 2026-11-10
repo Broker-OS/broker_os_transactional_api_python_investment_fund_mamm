@@ -26,11 +26,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import crypto
 from app.core.config import settings
 from app.core.exceptions import (
+    AccountCurrencyMismatchError,
+    AccountCurrencyUnsupportedError,
     AccountNotFoundOrForbiddenError,
     MamAccountAlreadyExistsError,
     Mt5CredentialsEncryptionError,
     Mt5CredentialsUnavailableError,
     PaymentAccountRoleError,
+    PlatformGroupLeaderForbiddenError,
     TraderNotFoundError,
 )
 from app.models.api_user import ROLE_ADMIN
@@ -41,6 +44,27 @@ from app.repositories.trader_repository import TraderRepository
 from app.services.mam_client import get_mam_client
 
 logger = logging.getLogger(__name__)
+
+
+def _norm_ccy(value: Optional[str]) -> str:
+    return (value or "").strip().upper()
+
+
+def ensure_ledger_currency(acc: MamAccount, *, para: str) -> None:
+    """Rechaza mover capital o suscribir una cuenta en otra moneda que el libro.
+
+    Los montos viajan al motor tal cual, sin conversion. En una cuenta cent
+    (USC) un deposito de 100 descontaria 100 USD de la maestra y acreditaria
+    100 centavos; un retiro, al reves, inventaria dinero en el libro.
+    """
+    libro = _norm_ccy(settings.LEDGER_CURRENCY)
+    cuenta = _norm_ccy(acc.currency)
+    if cuenta != libro:
+        raise AccountCurrencyUnsupportedError(
+            message=f"La cuenta esta en {cuenta or '(sin moneda)'} y el libro en {libro}: "
+                    f"no se puede {para}",
+            detail=(f"mt5_login={acc.mt5_login}. Los montos viajan al motor sin conversion; "
+                    f"operar una cuenta en otra moneda (ej. cent) descuadraria el libro."))
 
 
 class MamAccountService:
@@ -85,6 +109,43 @@ class MamAccountService:
         especifico = (settings.MAM_MT5_GROUP_LEADER if can_be_leader
                       else settings.MAM_MT5_GROUP_FOLLOWER)
         return (especifico or "").strip() or settings.MAM_MT5_PLATFORM_GROUP
+
+    @classmethod
+    def _resolve_group(cls, *, can_be_leader: bool, platform_group: Optional[str],
+                       currency: Optional[str]) -> tuple[str, str]:
+        """Grupo MT5 y moneda con los que nace la cuenta.
+
+        Todo se valida ANTES de llamar al proveedor: crear la cuenta no es
+        reversible y el grupo no se puede mover despues.
+
+          - Estrategia: el grupo lo pone el servicio. Pedir uno es un error.
+          - Investor: el grupo que mande el que llama; sin el, el por defecto.
+
+        Solo se crean cuentas en la moneda del libro: los montos viajan al motor
+        sin conversion, y una cuenta cent descuadraria el libro en cada deposito.
+        Ojo: aca solo se puede rechazar la moneda que se DECLARA. La moneda real
+        la define el grupo en MT5, y ni el motor ni MT5 nos dejan consultarla
+        antes de crear.
+        """
+        libro = _norm_ccy(settings.LEDGER_CURRENCY)
+        pedido = (platform_group or "").strip()
+
+        if pedido and can_be_leader:
+            raise PlatformGroupLeaderForbiddenError(
+                message="El grupo MT5 solo se puede elegir al crear un investor",
+                detail=("Una estrategia (can_be_leader=true) nace en el grupo de "
+                        "estrategias que configura el servicio. Quitar platform_group."))
+
+        group = pedido or cls._group_for(can_be_leader)
+
+        if currency is not None and _norm_ccy(currency) != libro:
+            raise AccountCurrencyMismatchError(
+                message=(f"Solo se pueden crear cuentas en {libro}, la moneda del libro "
+                         f"contable; se pidio {_norm_ccy(currency)}"),
+                detail=(f"platform_group={group!r}. Los montos viajan al motor sin "
+                        f"conversion: una cuenta cent no podria recibir depositos ni "
+                        f"suscribirse sin descuadrar el libro."))
+        return group, libro
 
     async def _resolve_trader(self, external_reference: Optional[str], *,
                              caller=None) -> Optional[Trader]:
@@ -152,16 +213,17 @@ class MamAccountService:
         self, *, external_reference: Optional[str], first_name: str, last_name: str,
         name: str, username: str, can_be_leader: bool = False, can_be_follower: bool = True,
         rights_profile: str = "TRADING_ENABLED", leverage: Optional[int] = None,
-        currency: str = "USD", platform_group: Optional[str] = None, caller=None,
+        currency: Optional[str] = None, platform_group: Optional[str] = None, caller=None,
     ) -> MamAccount:
         """Crea la cuenta en MT5 y la registra en MAM."""
         self._ensure_can_store_secrets()
+        group, currency = self._resolve_group(
+            can_be_leader=can_be_leader, platform_group=platform_group, currency=currency)
         trader = await self._resolve_trader(external_reference, caller=caller)
 
         rights = (settings.MAM_MT5_RIGHTS_TRADING_ENABLED
                   if rights_profile == "TRADING_ENABLED"
                   else settings.MAM_MT5_RIGHTS_TRADING_DISABLED)
-        group = platform_group or self._group_for(can_be_leader)
 
         data = await self._client.create_account(
             first_name=first_name, last_name=last_name, name=name, username=username,
@@ -175,12 +237,23 @@ class MamAccountService:
                 message="El proveedor no devolvio el login de la cuenta creada",
                 detail=f"respuesta sin mt5_login: {sorted(data)[:12]}")
 
+        motor_ccy = _norm_ccy(data.get("currency"))
+        if motor_ccy and motor_ccy != currency:
+            # Ante la duda se guarda lo que informa el motor. `currency` es
+            # siempre la del libro (otra se rechaza antes de crear), asi que un
+            # desajuste deja la cuenta en otra moneda y por lo tanto BLOQUEADA
+            # para capital y suscripciones: es el lado seguro del error.
+            logger.error(
+                "MAM: la cuenta %s se creo en el grupo %r (moneda declarada %s) pero el "
+                "motor informa %s. Verificar la moneda real del grupo con el broker.",
+                mt5_login, group, currency, motor_ccy)
+
         acc = MamAccount(
             trader_id=trader.id if trader else None,
             mt5_login=mt5_login,
             provider_account_id=_as_int(data.get("id")),
             name=data.get("name") or name,
-            currency=data.get("currency") or currency,
+            currency=currency if not motor_ccy or motor_ccy == currency else motor_ccy,
             account_mode=data.get("account_mode") or settings.MAM_ACCOUNT_MODE,
             status=data.get("status") or ACCOUNT_ACTIVE,
             can_be_leader=bool(data.get("can_be_leader", can_be_leader)),

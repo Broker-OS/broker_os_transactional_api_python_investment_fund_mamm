@@ -92,8 +92,8 @@ pasos 4 a 7, una vez por cliente.
   [1] Registrar el cliente          POST /traders
        └─ devuelve external_reference (12 dígitos)
             │
-  [2] Crear su cuenta MT5           POST /mam/accounts
-       └─ can_be_follower: true
+  [2] Crear su cuenta MT5           POST /mam/accounts/strategy  (estrategia)
+       └─ con platform_group         POST /mam/accounts/investor  (investor)
             │
   [3] (solo estrategias)            POST /mam/leaders
        Perfil de leader              └─ crea la cuenta PAYMENT sola
@@ -174,6 +174,36 @@ así que parece que funcionó — pero habilitó la *capacidad*, no pudo mover e
 **Decidí antes de crear.** Si la cuenta va a ser estrategia, nace con
 `can_be_leader: true`. Corregirlo después es un procedimiento administrativo del
 broker sobre el servidor MT5, no una llamada a esta API.
+
+#### Elegir el grupo: solo para investors
+
+Hay un endpoint por tipo de cuenta, y cada uno pide solo lo suyo:
+
+- **`POST /mam/accounts/strategy`**: no acepta grupo. La estrategia nace en el
+  grupo de estrategias que configura el servicio.
+- **`POST /mam/accounts/investor`**: **`platform_group` es obligatorio**. Es el
+  grupo MT5 donde va a vivir la cuenta, escrito exactamente como está en el
+  servidor del broker. Ni el motor ni MT5 validan el nombre antes de crear, y
+  el grupo no se puede mover después: revisalo dos veces.
+- `POST /mam/accounts` sigue disponible para casos especiales. Mandar
+  `platform_group` con `can_be_leader: true` da
+  `422 PLATFORM_GROUP_LEADER_FORBIDDEN`.
+
+⚠️ **Grupos cent.** El libro contable está en `LEDGER_CURRENCY` (USD) y los
+montos viajan al motor **sin conversión**: en una cuenta USC, un depósito de
+100 descontaría 100 USD de la maestra y acreditaría 1 USD. **Usá solo grupos
+en USD.** Lo que el servicio puede hacer, y hace:
+
+- Rechaza crear una cuenta con `currency` distinta a la del libro.
+- Si el motor informa que la cuenta nació en otra moneda, la guarda así y la
+  respuesta del alta lo avisa.
+- Depósitos, retiros, `regularize-capital`, elegibilidad y suscripciones de una
+  cuenta que no esté en la moneda del libro dan
+  `422 ACCOUNT_CURRENCY_UNSUPPORTED`.
+
+Lo que **no** puede hacer es saber la moneda de un grupo antes de crear la
+cuenta: ni el motor ni MT5 la exponen. Si el motor no informa la moneda real,
+elegir bien el grupo depende de quien crea la cuenta.
 
 **`external_reference` es obligatorio acá.** Una cuenta sin cliente no puede
 mover capital —el libro contable asienta por cliente— y ningún `USER` la ve. Si
@@ -912,7 +942,9 @@ indique. Todos exigen `X-API-Key`.
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| POST | `/mam/accounts` | Crear cuenta MT5 nueva. **No idempotente** |
+| POST | `/mam/accounts/strategy` | Crear la cuenta de una estrategia. Sin grupo: lo pone el servicio. **No idempotente** |
+| POST | `/mam/accounts/investor` | Crear la cuenta de un investor. `platform_group` **obligatorio**. **No idempotente** |
+| POST | `/mam/accounts` | Alta general con capacidades a mano (avanzado). **No idempotente** |
 | POST | `/mam/accounts/register` | Registrar una que ya existe en MT5 |
 | POST | `/mam/accounts/import` | Importar una que el motor ya conoce |
 | GET | `/mam/accounts` | Listar. Filtros: `external_reference`, `can_be_leader`, `can_be_follower`, `status` |

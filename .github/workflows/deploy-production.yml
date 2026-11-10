@@ -52,6 +52,12 @@ jobs:
       - name: Test de redaccion de secretos en logs
         run: python tests/test_log_redaction.py
 
+      # El grupo MT5 se fija al crear la cuenta y no se puede mover; una cuenta
+      # en otra moneda (cent) descuadraria el libro en cada deposito. Si estas
+      # reglas se rompen, el error es irreversible o cuesta plata.
+      - name: Test de grupo MT5 y candado de moneda
+        run: python tests/test_mam_groups.py
+
   deploy:
     name: Desplegar al server
     needs: test

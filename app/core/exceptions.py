@@ -138,6 +138,30 @@ class PerfFeeRateInvalidError(ValidationError):
 
 # ── Cuentas MAM ──
 
+class PlatformGroupLeaderForbiddenError(ValidationError):
+    """Se pidio un grupo MT5 para una cuenta que nace como estrategia.
+
+    El grupo de una estrategia lo decide el servicio (MAM_MT5_GROUP_LEADER):
+    elegirlo a mano es la forma de terminar con una estrategia en un grupo de
+    inversores, y el grupo no se puede mover despues.
+    """
+    code = "PLATFORM_GROUP_LEADER_FORBIDDEN"
+
+
+class AccountCurrencyMismatchError(ValidationError):
+    """La moneda pedida no es la del grupo MT5 donde nace la cuenta."""
+    code = "ACCOUNT_CURRENCY_MISMATCH"
+
+
+class AccountCurrencyUnsupportedError(ValidationError):
+    """La cuenta no esta en la moneda del libro contable (ej. una cuenta cent).
+
+    Los montos viajan al motor sin conversion: en una cuenta USC un deposito de
+    100 descontaria 100 USD de la maestra y acreditaria 1 USD.
+    """
+    code = "ACCOUNT_CURRENCY_UNSUPPORTED"
+
+
 class MamAccountAlreadyExistsError(ConflictError):
     """El mt5_login ya esta registrado en este servicio o en el motor MAM."""
     code = "MAM_ACCOUNT_ALREADY_EXISTS"
