@@ -21,23 +21,31 @@ class _MamAccountHolderFields(BaseModel):
     """Datos del titular y de MT5 comunes a toda cuenta que se crea."""
 
     external_reference: str = Field(
-        min_length=1,
-        description=("Cliente dueño de la cuenta (`POST /traders` lo devuelve). **Obligatorio "
-                     "al crear**: sin dueño la cuenta no puede mover capital (el libro contable "
-                     "asienta por cliente) y ningún USER la ve. Para una estrategia del propio "
-                     "fondo, dar de alta un cliente que represente al fondo."))
-    first_name: str = Field(max_length=120, description="Nombre del titular. MT5 lo exige.")
-    last_name: str = Field(max_length=120, description="Apellido del titular.")
-    name: str = Field(max_length=160, description="Nombre visible de la cuenta.")
-    username: str = Field(max_length=255,
-                          description="Identificador del titular en MT5 (suele ser su email).")
+        min_length=1, examples=["438434273005"],
+        description=("**Obligatorio.** Código de 12 dígitos del cliente dueño de la cuenta: lo "
+                     "devuelve `POST /traders` al registrarlo. Sin dueño la cuenta no puede "
+                     "mover capital (el libro contable asienta por cliente) y ningún USER la "
+                     "ve. Para una estrategia del propio fondo, registrar un cliente que "
+                     "represente al fondo."))
+    first_name: str = Field(max_length=120, examples=["Ana"],
+                            description="**Obligatorio.** Nombre del titular. MT5 lo exige.")
+    last_name: str = Field(max_length=120, examples=["García"],
+                           description="**Obligatorio.** Apellido del titular.")
+    name: str = Field(max_length=160, examples=["Cuenta de Ana"],
+                      description=("**Obligatorio.** Nombre visible de la cuenta, el que se ve "
+                                   "en los listados y en MT5."))
+    username: str = Field(max_length=255, examples=["ana@example.com"],
+                          description=("**Obligatorio.** Identificador del titular en MT5. "
+                                       "Normalmente su email."))
     rights_profile: RightsProfile = Field(
         default="TRADING_ENABLED",
-        description=("Máscara de permisos MT5: `TRADING_ENABLED` (9073) o `TRADING_DISABLED` "
-                     "(8981). **Solo se fija al crear**: ni el registro ni la edición "
-                     "posterior la cambian."))
+        description=("Opcional, por defecto `TRADING_ENABLED`. Permisos MT5 de la cuenta:\n"
+                     "- `TRADING_ENABLED` (9073): puede operar. Es lo normal.\n"
+                     "- `TRADING_DISABLED` (8981): no puede abrir operaciones.\n\n"
+                     "⚠️ **Solo se fija al crear**: después no se puede cambiar."))
     leverage: Optional[int] = Field(
-        default=None, ge=1, description="Apalancamiento. Si se omite, el del servicio (100).")
+        default=None, ge=1, examples=[100],
+        description="Opcional. Apalancamiento de la cuenta (ej. `100` = 1:100). Si se omite, 100.")
 
 
 class MamStrategyAccountCreateRequest(_MamAccountHolderFields):
@@ -49,9 +57,8 @@ class MamStrategyAccountCreateRequest(_MamAccountHolderFields):
 
     can_be_follower: bool = Field(
         default=False,
-        description=("Si la estrategia además puede **copiar** a otra estrategia. Lo normal "
-                     "es `false`. Aunque sea `true`, la cuenta queda en el grupo de "
-                     "estrategias."))
+        description=("Opcional, por defecto `false`. Si la estrategia además puede **copiar** a "
+                     "otra estrategia. Lo normal es dejarlo en `false`."))
 
     model_config = ConfigDict(extra="forbid", json_schema_extra={"example": {
         "external_reference": "438434273005",
@@ -66,10 +73,17 @@ class MamInvestorAccountCreateRequest(_MamAccountHolderFields):
 
     platform_group: str = Field(
         min_length=1, max_length=128,
-        description=("**Obligatorio.** Grupo MT5 donde nace el investor, escrito exactamente "
-                     "como está en el servidor del broker. ⚠️ **Irreversible**: no se puede "
-                     "cambiar después. Usar solo grupos en USD (la moneda del libro): un grupo "
-                     "cent descuadraría el libro."))
+        examples=["real\\BRIDGEMARKETS\\CODENCH\\AXINFY\\INVESTOR"],
+        description=(
+            "**Obligatorio.** Grupo MT5 donde va a vivir la cuenta, escrito **exactamente** "
+            "como está en el servidor del broker (mayúsculas incluidas).\n\n"
+            "**Cómo escribirlo en JSON:** la barra invertida `\\` se escribe doble `\\\\`. "
+            "El grupo `real\\BROKER\\INVESTOR` se envía como "
+            "`\"platform_group\": \"real\\\\BROKER\\\\INVESTOR\"`. Con una sola barra el "
+            "JSON es inválido o el nombre llega cambiado.\n\n"
+            "⚠️ **Irreversible**: el grupo no se puede cambiar después.\n\n"
+            "⚠️ **Solo grupos en USD.** Un grupo cent descuadraría el libro: si la cuenta nace "
+            "en otra moneda, queda bloqueada para depósitos, retiros y suscripciones."))
 
     @field_validator("platform_group")
     @classmethod

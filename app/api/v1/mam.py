@@ -127,12 +127,33 @@ async def _create(db: AsyncSession, caller: ApiUser, body, **fijos) -> APIRespon
              summary="Crear la cuenta MT5 de una estrategia (master)",
              description=(
                  "Crea en el servidor MT5 del broker la cuenta que va a **originar** operaciones "
-                 "para que otros las copien, y la registra en el motor.\n\n"
-                 "**No se elige grupo:** nace sola en el grupo de estrategias configurado en "
-                 "el servicio, en la moneda del libro. Enviar `platform_group` o `currency` da "
-                 "`422`.\n\n"
-                 "**Después:** la cuenta todavía no es seguible. Falta crearle el perfil con "
-                 "`POST /mam/leaders` (fee, mínimo, visibilidad).\n\n" + _ALTA_COMUN
+                 "para que los investors las copien, y la registra en el motor MAM.\n\n"
+                 "**No se envía grupo ni moneda.** La cuenta nace sola en el grupo de "
+                 "estrategias del servicio, en USD. Si se envía `platform_group` o `currency`, "
+                 "la API responde `422`.\n\n"
+                 "### Cómo enviarlo\n"
+                 "```json\n"
+                 "{\n"
+                 '  "external_reference": "438434273005",\n'
+                 '  "first_name": "Ana",\n'
+                 '  "last_name": "García",\n'
+                 '  "name": "Estrategia Ana",\n'
+                 '  "username": "ana@example.com",\n'
+                 '  "rights_profile": "TRADING_ENABLED",\n'
+                 '  "leverage": 100\n'
+                 "}\n"
+                 "```\n"
+                 "| Campo | ¿Obligatorio? | Qué va |\n|---|---|---|\n"
+                 "| `external_reference` | Sí | Código del cliente (`POST /traders`) |\n"
+                 "| `first_name`, `last_name` | Sí | Nombre y apellido del titular |\n"
+                 "| `name` | Sí | Nombre visible de la cuenta |\n"
+                 "| `username` | Sí | Identificador en MT5, normalmente el email |\n"
+                 "| `rights_profile` | No (`TRADING_ENABLED`) | Permisos MT5. Solo se fija acá |\n"
+                 "| `leverage` | No (100) | Apalancamiento |\n"
+                 "| `can_be_follower` | No (`false`) | Si además puede copiar a otra estrategia |\n\n"
+                 "### Después\n"
+                 "La cuenta todavía no es seguible: falta crearle el perfil de estrategia con "
+                 "`POST /mam/leaders` (fee, mínimo de suscripción, visibilidad).\n\n" + _ALTA_COMUN
              ))
 async def create_strategy_account(body: MamStrategyAccountCreateRequest,
                                   db: AsyncSession = Depends(get_db),
@@ -143,23 +164,51 @@ async def create_strategy_account(body: MamStrategyAccountCreateRequest,
 
 @router.post("/mam/accounts/investor", response_model=APIResponse, tags=_CUENTAS,
              status_code=status.HTTP_201_CREATED,
-             summary="Crear la cuenta MT5 de un investor",
+             summary="Crear la cuenta MT5 de un investor, en el grupo que se indique",
              description=(
-                 "Crea en el servidor MT5 del broker una cuenta que **copia** estrategias, y la "
-                 "registra en el motor.\n\n"
-                 "**`platform_group` es obligatorio:** el grupo MT5 donde va a vivir la "
-                 "cuenta, escrito **exactamente** como está en el servidor del broker (ej. "
-                 "`real\\\\BROKER\\\\INVESTOR`). ⚠️ **Irreversible**: el grupo no se puede "
-                 "cambiar después, y ni el motor ni MT5 validan el nombre antes de crear — "
-                 "revisalo dos veces.\n\n"
-                 "⚠️ **Grupos cent.** Usá solo grupos en la moneda del libro (USD). Los montos "
-                 "viajan al motor sin conversión: en una cuenta cent un depósito de 100 "
-                 "descontaría 100 USD de la maestra y acreditaría 1 USD. Este servicio no puede "
-                 "saber la moneda de un grupo antes de crearlo; si el motor informa que la "
-                 "cuenta nació en otra moneda, queda **bloqueada** para depósitos, retiros y "
-                 "suscripciones, y la respuesta lo avisa.\n\n"
-                 "**Después:** depositar (`POST /mam/accounts/{login}/deposits`), verificar "
-                 "elegibilidad y suscribirla a la estrategia (`POST /mam/allocations`).\n\n"
+                 "Crea en el servidor MT5 del broker una cuenta que **copia** estrategias, en el "
+                 "grupo MT5 que se indique en `platform_group`, y la registra en el motor MAM.\n\n"
+                 "### Cómo enviarlo\n"
+                 "```json\n"
+                 "{\n"
+                 '  "external_reference": "438434273005",\n'
+                 '  "first_name": "Ana",\n'
+                 '  "last_name": "García",\n'
+                 '  "name": "Cuenta de Ana",\n'
+                 '  "username": "ana@example.com",\n'
+                 '  "platform_group": "real\\\\BRIDGEMARKETS\\\\CODENCH\\\\AXINFY\\\\INVESTOR",\n'
+                 '  "rights_profile": "TRADING_ENABLED",\n'
+                 '  "leverage": 100\n'
+                 "}\n"
+                 "```\n"
+                 "| Campo | ¿Obligatorio? | Qué va |\n|---|---|---|\n"
+                 "| `external_reference` | Sí | Código del cliente (`POST /traders`) |\n"
+                 "| `first_name`, `last_name` | Sí | Nombre y apellido del titular |\n"
+                 "| `name` | Sí | Nombre visible de la cuenta |\n"
+                 "| `username` | Sí | Identificador en MT5, normalmente el email |\n"
+                 "| **`platform_group`** | **Sí** | Grupo MT5 donde nace la cuenta |\n"
+                 "| `rights_profile` | No (`TRADING_ENABLED`) | Permisos MT5. Solo se fija acá |\n"
+                 "| `leverage` | No (100) | Apalancamiento |\n\n"
+                 "### El grupo (`platform_group`)\n"
+                 "- Escribilo **exactamente** como está en el servidor del broker, mayúsculas "
+                 "incluidas.\n"
+                 "- **En JSON la barra invertida va doble:** el grupo "
+                 "`real\\BROKER\\INVESTOR` se envía como `\"real\\\\BROKER\\\\INVESTOR\"`.\n"
+                 "- ⚠️ **Irreversible:** el grupo no se puede cambiar después. Revisalo antes "
+                 "de enviar.\n"
+                 "- Si el proveedor rechaza el alta (por ejemplo, por un grupo inexistente), la "
+                 "API devuelve su error (`503 MAM_MT5_ERROR` o `422`) y no se registra nada de "
+                 "este lado.\n\n"
+                 "### ⚠️ Solo grupos en USD\n"
+                 "Los montos viajan al motor **sin conversión**. En una cuenta cent, un depósito "
+                 "de 100 descontaría 100 USD de la maestra y acreditaría 1 USD. Este servicio no "
+                 "puede saber la moneda de un grupo antes de crear la cuenta. Si el motor informa "
+                 "que nació en otra moneda, la respuesta lo avisa y la cuenta queda **bloqueada** "
+                 "para depósitos, retiros y suscripciones.\n\n"
+                 "### Después\n"
+                 "1. Depositar: `POST /mam/accounts/{login}/deposits`\n"
+                 "2. Verificar que puede suscribirse: `POST /mam/allocations/eligibility`\n"
+                 "3. Suscribirla a la estrategia: `POST /mam/allocations`\n\n"
                  + _ALTA_COMUN
              ))
 async def create_investor_account(body: MamInvestorAccountCreateRequest,
